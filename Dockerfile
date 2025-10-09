@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED 1
 WORKDIR /app
 
 # Устанавливаем libzbar
-RUN apt-get update && apt-get install -y libzbar0
+RUN apt-get update && apt-get install -y libzbar0 xz-utils
 
 # Устанавливаем системные зависимости, которые могут понадобиться для psycopg2 (PostgreSQL)
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -8,6 +8,9 @@ ENV PYTHONUNBUFFERED 1
 # Устанавливаем рабочую директорию внутри контейнера
 WORKDIR /app
 
+# Устанавливаем libzbar
+RUN apt-get update && apt-get install -y libzbar0
+
 # Устанавливаем системные зависимости, которые могут понадобиться для psycopg2 (PostgreSQL)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \

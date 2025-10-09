@@ -25,7 +25,7 @@ if not db_host:
 
 print(f"Ожидание доступности базы данных по адресу: {db_host}:{db_port}...")
 
-for i in range(12): # Пытаемся в течение 60 секунд (12 * 5 сек)
+for i in range(120): # Пытаемся в течение 600 секунд (120 * 5 сек)
     try:
         with socket.create_connection((db_host, db_port), timeout=5):
             print("База данных доступна! Продолжаем запуск...")

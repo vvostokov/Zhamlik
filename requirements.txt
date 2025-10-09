@@ -65,3 +65,4 @@ sgmllib3k==1.0.0
 soupsieve==2.7
 pyzbar
 tzlocal==5.3.1
+xz-utils

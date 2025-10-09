@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Редактировать транзакцию{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Редактировать транзакцию</h1>
+
+    <form method="POST" action="{{ url_for('main.ui_edit_transaction_form', tx_id=transaction.id) }}" id="transaction-form">
+        <div class="form-group">
+            <label for="date">Дата и время</label>
+
+            <input type="datetime-local" class="form-control" id="date" name="date" value="{{ transaction.date.strftime('%Y-%m-%dT%H:%M') }}" required>
+        </div>
+        <div class="form-group">
+            <label for="account_id">Счет</label>
+
+
+            <select class="form-control" id="account_id" name="account_id" required>
+                {% for acc in accounts %}
+
+                <option value="{{ acc.id }}" {% if acc.id == transaction.account_id %}selected{% endif %}>{{ acc.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+                <!-- Если это покупка, отображаем список товаров -->
+        {% if transaction.items %}
+
+        <h5 class="mt-4">Товары в покупке</h5>
+        <div id="items-container" >
+            {% for item in transaction.items %}
+            <div class="row mb-2 align-items-center item-row">
+                <div class="col-md-4">
+                    <input type="text" name="item_name[]" class="form-control" placeholder="Название товара" value="{{ item.name }}" required>
+                </div>
+                <div class="col-md-2">
+                    <input type="number" step="0.001" name="item_quantity[]" class="form-control" placeholder="Кол-во" value="{{ item.quantity }}" required>
+                </div>
+                <div class="col-md-2">
+                    <input type="number" step="0.01" name="item_price[]" class="form-control" placeholder="Цена" value="{{ item.price }}" required>
+                </div>
+                <div class="col-md-3">
+                    <select name="item_category_id[]" class="form-select">
+                        <option value="">-- Без категории --</option>
+                        {% for parent_cat in expense_categories %}
+
+                            <optgroup label="{{ parent_cat.name }}" >
+                                <option value="{{ parent_cat.id }}" {% if item.category_id == parent_cat.id %} selected {% endif %}>{{ parent_cat.name }} (основная)</option>
+                                {% for sub_cat in parent_cat.subcategories %}
+                                    <option value="{{ sub_cat.id }}" {% if item.category_id == sub_cat.id %} selected {% endif %}>{{ sub_cat.name }}</option>
+                                {% endfor %}
+                            </optgroup>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.item-row').remove()">X</button>
+                </div>
+             </div>
+            {% endfor %}
+        </div>
+        <button type="button" class="btn btn-success mt-2" id="add-item-btn">Добавить товар</button>
+        {% else %}
+             <div class="form-group">
+                <label for="amount">Сумма</label>
+                <input type="number" step="0.01" class="form-control" id="amount" name="amount" value="{{ transaction.amount }}" required>
+            </div>
+            <div class="form-group">
+            <label for="category_id">Категория</label>
+            <select class="form-control" id="category_id" name="category_id">
+                <option value="">-- Без категории --</option>
+                {% for cat in categories %}
+                <option value="{{ cat.id }}" {% if cat.id == transaction.category_id %}selected{% endif %}>{{ cat.name }}</option>
+                {% endfor %}
+            </select>       
+        </div>
+        {% endif %}
+
+        <div class="form-group">
+            <label for="description">Описание</label>
+            <textarea class="form-control" id="description" name="description" rows="3">{{ transaction.description }}</textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Сохранить изменения</button>
+        <a href="{{ url_for('main.ui_transactions') }}" class="btn btn-secondary">Отмена</a>
+  <a href="{{ url_for('main.ui_transactions') }}" class="btn btn-secondary">Отмена</a>
+    </form>
+</div>
+
+<!-- Шаблон для строки товара (для типа "Покупка") -->
+<template id="item-template">
+    <div class="row mb-2 align-items-center item-row">
+        <div class="col-md-4">
+            <input type="text" name="item_name[]" class="form-control" placeholder="Название товара" required>
+        </div>
+        <div class="col-md-2">
+            <input type="number" step="0.001" name="item_quantity[]" class="form-control" placeholder="Кол-во" value="1" required>
+        </div>
+        <div class="col-md-2">
+            <input type="number" step="0.01" name="item_price[]" class="form-control" placeholder="Цена" required>
+        </div>
+        <div class="col-md-3">
+            <select name="item_category_id[]" class="form-select">
+                <option value="">-- Без категории --</option>
+                {% for parent_cat in expense_categories %}
+                    <optgroup label="{{ parent_cat.name }}">
+      <optgroup label="{{ parent_cat.name }}">
+                        <option value="{{ parent_cat.id }}">{{ parent_cat.name }} (основная)</option>
+                        {% for sub_cat in parent_cat.subcategories %}
+                            <option value="{{ sub_cat.id }}">{{ sub_cat.name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.item-row').remove()">X</button>
+        </div>
+    </div>
+</template>
+
+{% endblock %}
+{% block scripts %}
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const addItemBtn = document.getElementById('add-item-btn');
+        const itemsContainer = document.getElementById('items-container');
+
+
+            // Функция для добавления строки товара
+        function addItemRow(itemData = {}) {
+            const template = document.getElementById('item-template');
+            const clone = template.content.cloneNode(true);
+
+            // Заполнение полей, если переданы данные
+            if (itemData.name) clone.querySelector('[name="item_name[]"]').value = itemData.name;
+            if (itemData.quantity) clone.querySelector('[name="item_quantity[]"]').value = itemData.quantity;
+            if (itemData.price) clone.querySelector('[name="item_price[]"]').value = itemData.price;
+            if (itemData.category_id) clone.querySelector('[name="item_category_id[]"]').value = itemData.category_id;
+
+            itemsContainer.appendChild(clone);
+        }
+
+        if (addItemBtn) {
+        addItemBtn.addEventListener('click', () => addItemRow());
+    }
+    });
+</script>
+
+{% endblock %}

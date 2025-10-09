@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Аналитика - Финансовый Помощник{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Аналитика</h2>
+
+    <div class="card">
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+        <div class="card-header">
+            Общий баланс
+        </div>
+        <div class="card-body">
+            <h5 class="card-title">{{ total_balance_rub }} RUB</h5>
+            <p class="card-text">Общая сумма на всех ваших банковских счетах (включая кредитные карты).</p>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <form method="GET" action="{{ url_for('main.ui_analytics_overview') }}">
+            <div class="form-row align-items-center">
+                <div class="col-auto">
+                    <label class="sr-only" for="startDate">Начальная дата</label>
+                    <input type="date" class="form-control form-control-sm" id="startDate" name="start_date" value="{{ start_date }}" required>
+                </div>
+                <div class="col-auto">
+                    <label class="sr-only" for="endDate">Конечная дата</label>
+                    <input type="date" class="form-control form-control-sm" id="endDate" name="end_date" value="{{ end_date }}" required>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">Применить</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Топ-10 Категорий расходов</div>
+                <div class="card-body">
+                    <canvas id="categorySpendingChart"></canvas>
+                    <ul>
+                        {% if category_labels %}
+                            {% for i in range(category_labels|length) %}
+                                <li>{{ category_labels[i] }}: {{ category_percentages[i] }}%</li>
+                            {% endfor %}
+                        {% else %}<li>Нет данных о категориях расходов.</li>{% endif %}
+                    </ul>
+
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+           <div class="card">
+                <div class="card-header">Доходы и расходы</div>
+                <div class="card-body">
+                    <canvas id="incomeExpenseChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="row mt-4">
+       <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Динамика баланса</div>
+                <div class="card-body">
+                    <canvas id="balanceOverTimeChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+
+
+          <div class="card">
+                <div class="card-header">Расходы по продуктам</div>
+                <div class="card-body">
+                    <canvas id="productsSpendingChart"></canvas>
+                </div>
+            </div>
+        </div>
+                <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Топ-10 Категорий расходов по покупкам</div>
+                <div class="card-body">
+                    <canvas id="purchaseCategorySpendingChart"></canvas>
+                   <ul>
+                        {% if purchase_category_labels %}
+                            {% for i in range(purchase_category_labels|length) %}
+                                <li>{{ purchase_category_labels[i] }}: {{ purchase_category_percentages[i] }}%</li>
+                            {% endfor %}
+                        {% else %}<li>Нет данных о категориях расходов по покупкам.</li>{% endif %}
+                    </ul>
+                </div>
+            </div>
+    </div>
+
+
+
+
+    <h3 class="mt-4">Последние Транзакции</h3>
+    <ul class="list-group">
+        {% for tx in recent_transactions %}
+            <li class="list-group-item">
+                
+            </li>
+
+        {% endfor %}
+    </ul>
+</div>
+
+<script>
+    const categoryLabels = JSON.parse('{{ category_labels | safe }}');
+    const categoryData = JSON.parse('{{ category_data | safe }}');
+    const categoryPercentages = JSON.parse('{{ category_percentages | safe }}');
+    const incomeExpenseLabels = JSON.parse('{{ income_expense_labels | safe }}');
+    const incomeExpenseData = JSON.parse('{{ income_expense_data | safe }}');
+    const subcategoryLabels = JSON.parse('{{ subcategory_labels | safe }}');
+    const subcategoryData = JSON.parse('{{ subcategory_data | safe }}');
+    const productsLabels = JSON.parse('{{ products_labels | safe }}');
+    const productsData = JSON.parse('{{ products_data | safe }}');
+    const balanceOverTimeLabels = JSON.parse('{{ balance_over_time_labels | safe }}');
+    const balanceOverTimeData = JSON.parse('{{ balance_over_time_data | safe }}');
+
+        const purchaseCategoryLabels = JSON.parse('{{ purchase_category_labels | safe }}');
+    const purchaseCategoryData = JSON.parse('{{ purchase_category_data | safe }}');
+    const purchaseCategoryPercentages = JSON.parse('{{ purchase_category_percentages | safe }}');
+    console.log("categoryLabels:", categoryLabels);
+    console.log("categoryData:", categoryData);
+    console.log("categoryPercentages:", categoryPercentages);
+    console.log("incomeExpenseLabels:", incomeExpenseLabels);
+    console.log("incomeExpenseData:", incomeExpenseData);
+    console.log("subcategoryLabels:", subcategoryLabels);
+    console.log("subcategoryData:", subcategoryData);
+    console.log("productsLabels:", productsLabels);
+    console.log("productsData:", productsData);
+    console.log("balanceOverTimeLabels:", balanceOverTimeLabels);
+    console.log("purchaseCategoryLabels:", purchaseCategoryLabels);
+    console.log("purchaseCategoryData:", purchaseCategoryData);
+    console.log("balanceOverTimeData:", balanceOverTimeData);
+
+    try {
+        new Chart(document.getElementById('categorySpendingChart'), { type: 'bar', data: { labels: categoryLabels, datasets: [{ label: 'Сумма', data: categoryData }] } });
+        new Chart(document.getElementById('incomeExpenseChart'), { type: 'pie', data: { labels: incomeExpenseLabels, datasets: [{ label: 'Сумма', data: incomeExpenseData }] } });
+       new Chart(document.getElementById('productsSpendingChart'), { type: 'line', data: { labels: productsLabels, datasets: [{ label: 'Сумма', data: productsData }] } });
+        new Chart(document.getElementById('balanceOverTimeChart'), { type: 'line', data: { labels: balanceOverTimeLabels, datasets: [{ label: 'Баланс', data: balanceOverTimeData }] } });
+    } catch (error) {
+        console.error("Error creating chart:", error);
+    }
+
+    try {new Chart(document.getElementById('purchaseCategorySpendingChart'), { type: 'bar', data: { labels: purchaseCategoryLabels, datasets: [{ label: 'Сумма', data: purchaseCategoryData }] } });} catch (error) {
+        console.error("Error creating chart:", error);
+    }
+</script>
+
+
+
+
+{% endblock %}

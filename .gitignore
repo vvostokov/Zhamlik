@@ -1,0 +1,27 @@
+# Виртуальное окружение
+.venv/
+venv/
+
+# Файлы кэша Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# База данных
+app.db
+*.sqlite
+*.sqlite3
+
+# Папка для загрузок
+/uploads/
+
+# Файлы с переменными окружения
+.env
+.env.*
+!.env.example
+
+# IDE / Редакторы кода
+.idea/
+.vscode/
+*.swp

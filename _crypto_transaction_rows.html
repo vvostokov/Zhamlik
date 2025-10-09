@@ -1,0 +1,32 @@
+{% for tx in transactions %}
+{% set badge_map = {
+    'buy': 'badge-success',
+    'sell': 'badge-danger',
+    'deposit': 'badge-info',
+    'withdrawal': 'badge-warning',
+    'transfer': 'badge-secondary'
+} %}
+<tr class="transaction-row"
+    data-type="{{ tx.type }}"
+    data-pair="{{ tx.asset1_ticker }}/{{ tx.asset2_ticker or '' }}"
+    data-asset1-amount="{{ tx.asset1_amount|trim_zeros if tx.asset1_amount is not none else '0' }}"
+    data-asset2-amount="{{ tx.asset2_amount|trim_zeros if tx.asset2_amount is not none else '0' }}"
+    data-asset1-ticker="{{ tx.asset1_ticker }}"
+    data-asset2-ticker="{{ tx.asset2_ticker or '' }}">
+    <td><input type="checkbox" class="tx-selector" name="transaction_ids" value="{{ tx.id }}"></td>
+    <td data-label="Дата">{{ tx.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+    <td data-label="Платформа"><a href="{{ url_for('main.ui_investment_platform_detail', platform_id=tx.platform.id) }}">{{ tx.platform.name }}</a></td>
+    <td data-label="Тип" class="text-center">
+        <span class="badge badge-pill {{ badge_map.get(tx.type, 'badge-light') }}">{{ tx.type|capitalize }}</span>
+        {% if tx.raw_type and tx.raw_type|lower != tx.type|lower %}
+        <small class="text-muted">({{ tx.raw_type }})</small>
+        {% endif %}
+    </td>
+    <td data-label="Актив 1">{{ tx.asset1_ticker }}</td>
+    <td data-label="Кол-во 1" class="text-end text-monospace">{{ "%.8f"|format(tx.asset1_amount)|trim_zeros if tx.asset1_amount is not none else '-' }}</td>
+    <td data-label="Актив 2">{{ tx.asset2_ticker or '-' }}</td>
+    <td data-label="Кол-во 2" class="text-end text-monospace">{{ "%.8f"|format(tx.asset2_amount)|trim_zeros if tx.asset2_amount is not none else '-' }}</td>
+    <td data-label="Цена исп." class="text-end text-monospace">{{ "%.8f"|format(tx.execution_price)|trim_zeros if tx.execution_price is not none else '-' }}</td>
+    <td data-label="Комиссия" class="text-monospace">{{ (tx.fee_amount|trim_zeros ~ ' ' ~ tx.fee_currency) if tx.fee_amount and tx.fee_amount > 0 and tx.fee_currency else '-' }}</td>
+</tr>
+{% endfor %}

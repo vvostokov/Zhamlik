@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urlencode
 from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import deque
+
 
 # --- Константы базовых URL API ---
 BYBIT_BASE_URL = "https://api.bybit.com"
@@ -18,14 +20,52 @@ KUCOIN_BASE_URL = "https://api.kucoin.com"
 OKX_BASE_URL = "https://www.okx.com"
 
 from flask import current_app
+import threading
 from extensions import db
 
 # --- Вспомогательные функции для аутентификации и запросов ---
+class RateLimiter:
+    """
+    Класс для ограничения скорости запросов.
+    Позволяет ограничивать количество запросов в секунду и в минуту.
+    """
+    def __init__(self, max_calls_per_second, max_calls_per_minute):
+        self.calls_second = deque()
+        self.calls_minute = deque()
+        self.max_calls_per_second = max_calls_per_second
+        self.max_calls_per_minute = max_calls_per_minute
+        self.lock = threading.Lock()
+
+    def acquire(self):
+        with self.lock:
+            now = time.time()
+
+            # Очищаем "секундную" очередь от устаревших вызовов
+            while self.calls_second and self.calls_second[0] <= now - 1:
+                self.calls_second.popleft()
+
+            # Очищаем "минутную" очередь от устаревших вызовов
+            while self.calls_minute and self.calls_minute[0] <= now - 60:
+                self.calls_minute.popleft()
+
+            # Проверяем лимиты и ждем, если необходимо
+            if len(self.calls_second) >= self.max_calls_per_second or len(self.calls_minute) >= self.max_calls_per_minute:
+                time_to_wait = max(0, 1 - (now - (self.calls_second[0] if self.calls_second else now)), 60 - (now - (self.calls_minute[0] if self.calls_minute else now)))
+                time.sleep(time_to_wait)
+
+            self.calls_second.append(time.time())
+            self.calls_minute.append(time.time())
 
 def _make_request(method, url, headers=None, params=None, data=None):
     """Универсальная функция для выполнения HTTP-запросов."""
     MAX_RETRIES = 5
     retry_delay_seconds = 5 # Начальная задержка
+    # Лимиты скорости, специфичные для Bybit (из документации)
+    BYBIT_SPOT_ORDER_RATE_LIMIT = 10  # Пример: 10 запросов в секунду
+    time_of_last_bybit_spot_order_request = 0
+    
+    #  Создаем экземпляр RateLimiter для Bybit
+    bybit_rate_limiter = RateLimiter(max_calls_per_second=5, max_calls_per_minute=60)
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -33,6 +73,16 @@ def _make_request(method, url, headers=None, params=None, data=None):
             if params:
                 full_url_with_params += '?' + urlencode(params)
             current_app.logger.debug(f"--- [Raw Request Debug] Requesting URL: {full_url_with_params}")
+            bybit_rate_limiter.acquire()
+
+             # Применяем rate limiting для запросов к Bybit
+            if 'bybit.com' in url:
+                time_since_last_request = time.time() - _make_request.time_of_last_bybit_spot_order_request
+                if time_since_last_request < (1 / BYBIT_SPOT_ORDER_RATE_LIMIT):
+                    sleep_time = (1 / BYBIT_SPOT_ORDER_RATE_LIMIT) - time_since_last_request
+                    time.sleep(sleep_time)
+                _make_request.time_of_last_bybit_spot_order_request = time.time()
+
             response = requests.request(method, url, headers=headers, params=params, data=data, timeout=20)
             current_app.logger.debug(f"--- [Raw Request Debug] Response status for {url}: {response.status_code}")
 
@@ -52,6 +102,9 @@ def _make_request(method, url, headers=None, params=None, data=None):
             raise
 
     raise Exception(f"Превышено максимальное количество попыток ({MAX_RETRIES}) для запроса к {url} после ошибок с ограничением скорости.")
+_make_request.time_of_last_bybit_spot_order_request = 0
+
+
 def _get_timestamp_ms():
     """Возвращает текущее время в миллисекундах."""
     return str(int(time.time() * 1000))
@@ -513,6 +566,7 @@ class BybitClient(BaseApiClient):
                 current_app.logger.info(f"[Bybit Time Sync] Server time synced. Offset is {self.time_offset} ms.")
             else:
                 current_app.logger.warning(f"[Bybit Time Sync] Failed to sync server time. Using local time.")
+
                 self.time_offset = 0
         except Exception as e:
             current_app.logger.error(f"[Bybit Time Sync] Error syncing time: {e}. Using local time.")
@@ -521,8 +575,9 @@ class BybitClient(BaseApiClient):
     def _request(self, method, path, params=None):
         """Выполняет подписанный запрос к Bybit."""
         timestamp = str(int(time.time() * 1000) + self.time_offset) # Use synchronized time
-        recv_window = "20000"
+        recv_window = "5000"
         
+
         params_with_recv_window = params.copy() if params else {}
         params_with_recv_window['recvWindow'] = recv_window
         query_string = urlencode(dict(sorted(params_with_recv_window.items())))
@@ -780,6 +835,10 @@ def fetch_bybit_trade_history(api_key: str, api_secret: str, passphrase: str = N
     unique_trades = list({t['execId']: t for t in all_trades}.values())
     current_app.logger.info(f"--- [Bybit Trades] Всего найдено {len(all_trades)} сделок, уникальных: {len(unique_trades)}.")
     return unique_trades
+
+
+
+
 
 def fetch_bybit_withdrawal_history(api_key: str, api_secret: str, passphrase: str = None, start_time_dt: datetime = None, end_time_dt: datetime = None) -> list:
     """Получает всю историю выводов средств с Bybit."""
@@ -1555,8 +1614,8 @@ TRANSACTION_PROCESSOR_DISPATCHER = {
     'kucoin': KucoinTransactionProcessor,
     'okx': OkxTransactionProcessor,
 }
-
 from models import Transaction
+
 
 # Maps a platform name to the function that fetches its market prices.
 PRICE_TICKER_DISPATCHER = {

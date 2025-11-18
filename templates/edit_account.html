@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Редактировать счет: {{ account.name }}{% endblock %}
+
+{% block content %}
+    <div class="container mt-4">
+    <h2>Редактировать счет: {{ account.name }}</h2>
+    <hr>
+    <form method="POST" action="{{ url_for('ui_edit_account_form', account_id=account.id) }}">
+        <div class="form-group">
+            <label for="name">Название счета</label>
+            <input type="text" class="form-control" id="name" name="name" value="{{ account.name }}" required>
+        </div>
+        <div class="form-group">
+            <label for="account_type">Тип счета</label>
+            <select class="form-control" id="account_type" name="account_type" required>
+                <option value="bank_card" {% if account.account_type == 'bank_card' %}selected{% endif %}>Банковская карта</option>
+                <option value="bank_account" {% if account.account_type == 'bank_account' %}selected{% endif %}>Банковский счет</option>
+                <option value="cash" {% if account.account_type == 'cash' %}selected{% endif %}>Наличные</option>
+                <option value="e-wallet" {% if account.account_type == 'e-wallet' %}selected{% endif %}>Электронный кошелек</option>
+                <option value="other" {% if account.account_type == 'other' %}selected{% endif %}>Другое</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="balance">Текущий баланс</label>
+            <input type="number" step="0.01" class="form-control" id="balance" name="balance" value="{{ "%.2f"|format(account.balance) }}" required>
+            <small class="form-text text-muted">Изменение баланса здесь напрямую изменит его. Для корректировки через транзакции используйте раздел транзакций.</small>
+        </div>
+        <div class="form-group">
+            <label for="currency">Валюта</label>
+            <input type="text" class="form-control" id="currency" name="currency" value="{{ account.currency }}" required>
+        </div>
+        <div class="form-group">
+            <label for="notes">Заметки</label>
+            <textarea class="form-control" id="notes" name="notes" rows="3">{{ account.notes or '' }}</textarea>
+        </div>
+        <div class="form-group form-check">
+            <input type="checkbox" class="form-check-input" id="is_active" name="is_active" {% if account.is_active %}checked{% endif %}>
+            <label class="form-check-label" for="is_active">Активный счет</label>
+        </div>
+        <button type="submit" class="btn btn-primary">Сохранить изменения</button>
+        <a href="{{ url_for('ui_accounts') }}" class="btn btn-secondary">Отмена</a>
+    </form>
+{% endblock %}

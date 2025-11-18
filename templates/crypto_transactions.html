@@ -1,0 +1,452 @@
+{% extends "base.html" %}
+{% from "_macros.html" import render_pagination, format_decimal %}
+
+{% block head_extra %}
+<style>
+    #selection-summary-container {
+        position: sticky;
+        top: 56px; /* Высота навбара из base.html */
+        background-color: #f8f9fa;
+        z-index: 1020; /* Поверх других элементов */
+        border-bottom: 1px solid #dee2e6;
+        display: none; /* Скрыто по умолчанию */
+    }
+    .transaction-row { cursor: pointer; }
+    .table-sm th, .table-sm td {
+        padding: 0.4rem; /* Увеличим паддинг для лучшей читаемости */
+    }
+    /* Адаптивная таблица для мобильных устройств */
+    @media screen and (max-width: 767.98px) {
+        .responsive-table thead {
+            display: none;
+        }
+        .responsive-table tr {
+            display: block;
+            border: 1px solid #dee2e6;
+            margin-bottom: 1rem;
+            /* NEW: Remove horizontal borders and radius for full-width view */
+            border-left: none;
+            border-right: none;
+            border-radius: 0;
+        }
+        .responsive-table td {
+            display: block;
+            text-align: right !important; /* Переопределяем выравнивание для мобильных */
+            padding-left: 50% !important;
+            position: relative;
+            border-top: 1px solid #e9ecef;
+        }
+        .responsive-table td:first-child {
+            border-top: none;
+            text-align: left !important;
+            padding-left: 0.4rem !important;
+        }
+        .responsive-table td::before {
+            content: attr(data-label);
+            position: absolute;
+            left: 0.75rem;
+            font-weight: bold;
+            text-align: left;
+        }
+        .responsive-table td:first-child::before {
+            display: none;
+        }
+
+        /* NEW: Make table container full-width on mobile to use all space */
+        .table-container-full-width {
+            /* These negative margins counteract the padding of the parent .container */
+            margin-right: -15px;
+            margin-left: -15px;
+        }
+
+        /* NEW: Responsive styles for the summary table */
+        .responsive-summary-table {
+            border: 0;
+        }
+        .responsive-summary-table thead {
+            display: none;
+        }
+        .responsive-summary-table tr {
+            display: block;
+            border-bottom: 1px solid #dee2e6;
+            padding: 0.5rem 0;
+            margin-bottom: 0; /* Override default tr margin */
+        }
+        .responsive-summary-table tr:last-child {
+            border-bottom: 0;
+            padding-bottom: 0;
+        }
+        .responsive-summary-table td {
+            display: block;
+            text-align: right !important;
+            padding-left: 50% !important;
+            position: relative;
+            border: none; /* Override .table-bordered */
+        }
+        .responsive-summary-table td::before {
+            content: attr(data-label);
+            position: absolute;
+            left: 0.75rem;
+            font-weight: bold;
+            text-align: left;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block title %}История операций с криптовалютой{% endblock %}
+
+{% macro sort_link(column, title) %}
+    {% set new_order = 'asc' if sort_by == column and order == 'desc' else 'desc' %}
+    <a href="{{ url_for('main.ui_crypto_transactions', sort_by=column, order=new_order, filter_type=filter_type, filter_platform_id=filter_platform_id, filter_asset=filter_asset, start_date=start_date, end_date=end_date, page=1) }}">
+        {{ title }}
+        {% if sort_by == column %}
+            {% if order == 'asc' %}<i class="fas fa-sort-up"></i>{% else %}<i class="fas fa-sort-down"></i>{% endif %}
+        {% endif %}
+    </a>
+{% endmacro %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>История операций с криптовалютой</h2>
+    </div>
+
+    <!-- Блок для сводки по выбранным операциям -->
+    <div id="selection-summary-container" class="card mb-4">
+        <h5 class="card-header">Сводка по выбранным операциям</h5>
+        <div id="selection-summary" class="card-body p-2"></div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Фильтры</h5>
+            <form method="GET" action="{{ url_for('main.ui_crypto_transactions') }}" class="row align-items-end">
+                <div class="form-group col-12 col-md-4 col-lg-2 mb-2">
+                    <label for="filter_platform_id" class="form-label">Платформа</label>
+                    <select name="filter_platform_id" id="filter_platform_id" class="form-control" onchange="this.form.submit()">
+                        <option value="all">Все платформы</option>
+                        {% for p in platforms %}
+                        <option value="{{ p.id }}" {% if filter_platform_id == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group col-12 col-md-4 col-lg-2 mb-2">
+                    <label for="filter_type" class="form-label">Тип</label>
+                    <select name="filter_type" id="filter_type" class="form-control" onchange="this.form.submit()">
+                        <option value="all">Все типы</option>
+                        <option value="buy_sell" {% if filter_type == 'buy_sell' %}selected{% endif %}>Buy&Sell</option>
+                        {% for tx_type in unique_transaction_types %}
+                        <option value="{{ tx_type }}" {% if filter_type == tx_type %}selected{% endif %}>{{ tx_type|capitalize }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group col-12 col-md-4 col-lg-2 mb-2">
+                    <label for="filter_asset" class="form-label">Актив</label>
+                    <select name="filter_asset" id="filter_asset" class="form-control" onchange="this.form.submit()">
+                        <option value="all">Все активы</option>
+                        {% for asset in unique_assets %}
+                        <option value="{{ asset }}" {% if filter_asset == asset %}selected{% endif %}>{{ asset }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group col-12 col-md-6 col-lg-2 mb-2">
+                    <label for="start_date" class="form-label">С даты</label>
+                    <input type="date" id="start_date" name="start_date" value="{{ start_date }}" class="form-control" onchange="this.form.submit()">
+                </div>
+                <div class="form-group col-12 col-md-6 col-lg-2 mb-2">
+                    <label for="end_date" class="form-label">По дату</label>
+                    <input type="date" id="end_date" name="end_date" value="{{ end_date }}" class="form-control" onchange="this.form.submit()">
+                </div>
+                <div class="form-group col-12 col-lg-2 mb-2">
+                    <label>&nbsp;</label>
+                    <a href="{{ url_for('main.ui_crypto_transactions') }}" class="btn btn-secondary btn-block">Сбросить</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="table-container-full-width">
+        <table class="table table-sm table-hover responsive-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px;"><input type="checkbox" id="select-all" title="Выбрать все на странице"></th>
+                    <th>{{ sort_link('timestamp', 'Дата') }}</th>
+                    <th>Платформа</th>
+                    <th>{{ sort_link('type', 'Тип') }}</th>
+                    <th>{{ sort_link('asset1_ticker', 'Актив 1') }}</th>
+                    <th class="text-end">Кол-во 1</th>
+                    <th>{{ sort_link('asset2_ticker', 'Актив 2') }}</th>
+                    <th class="text-end">Кол-во 2</th>
+                    <th class="text-end">Цена исп.</th>
+                    <th>Комиссия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tx in transactions %}
+                {% set badge_map = {
+                    'buy': 'badge-success',
+                    'sell': 'badge-danger',
+                    'deposit': 'badge-info',
+                    'withdrawal': 'badge-warning',
+                    'transfer': 'badge-secondary'
+                } %}
+                <tr class="transaction-row"
+                    data-type="{{ tx.type }}"
+                    data-pair="{{ tx.asset1_ticker }}/{{ tx.asset2_ticker or '' }}"
+                    data-asset1-amount="{{ tx.asset1_amount|trim_zeros if tx.asset1_amount is not none else '0' }}"
+                    data-asset2-amount="{{ tx.asset2_amount|trim_zeros if tx.asset2_amount is not none else '0' }}"
+                    data-asset1-ticker="{{ tx.asset1_ticker }}"
+                    data-asset2-ticker="{{ tx.asset2_ticker or '' }}">
+                    <td><input type="checkbox" class="tx-selector" name="transaction_ids" value="{{ tx.id }}"></td>
+                    <td data-label="Дата">{{ tx.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td data-label="Платформа"><a href="{{ url_for('main.ui_investment_platform_detail', platform_id=tx.platform.id) }}">{{ tx.platform.name }}</a></td>
+                    <td data-label="Тип" class="text-center">
+                        <span class="badge badge-pill {{ badge_map.get(tx.type, 'badge-light') }}">{{ tx.type|capitalize }}</span>
+                        {% if tx.raw_type and tx.raw_type|lower != tx.type|lower %}
+                        <small class="text-muted">({{ tx.raw_type }})</small>
+                        {% endif %}
+                    </td>
+                    <td data-label="Актив 1">{{ tx.asset1_ticker }}</td>
+                    <td data-label="Кол-во 1" class="text-end text-monospace">{{ "%.8f"|format(tx.asset1_amount)|trim_zeros if tx.asset1_amount is not none else '-' }}</td>
+                    <td data-label="Актив 2">{{ tx.asset2_ticker or '-' }}</td>
+                    <td data-label="Кол-во 2" class="text-end text-monospace">{{ "%.8f"|format(tx.asset2_amount)|trim_zeros if tx.asset2_amount is not none else '-' }}</td>
+                    <td data-label="Цена исп." class="text-end text-monospace">{{ "%.8f"|format(tx.execution_price)|trim_zeros if tx.execution_price is not none else '-' }}</td>
+                    <td data-label="Комиссия" class="text-monospace">{{ (tx.fee_amount|trim_zeros ~ ' ' ~ tx.fee_currency) if tx.fee_amount and tx.fee_amount > 0 and tx.fee_currency else '-' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="10" class="text-center">Транзакции не найдены.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if pagination and pagination.has_next %}
+    <div class="text-center mt-4" id="load-more-container">
+        <button id="load-more-btn" class="btn btn-primary" data-next-page="{{ pagination.next_num }}">
+            Загрузить еще
+        </button>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // --- Constants and Selectors ---
+    const STORAGE_KEY = 'selectedCryptoTxIds';
+    const selectAllCheckbox = document.getElementById('select-all');
+    const summaryContainer = document.getElementById('selection-summary');
+    const summaryPanel = document.getElementById('selection-summary-container');
+    const filterControls = document.querySelectorAll('#filter_type, #filter_platform_id, #filter_asset');
+    const tableBody = document.querySelector('.table tbody');
+
+    // --- Local Storage Functions ---
+    function getSelectedIds() {
+        // ИСПРАВЛЕНО: Добавлена обработка ошибок при чтении данных из localStorage.
+        // Если в хранилище окажутся некорректные данные (например, от старой версии кода),
+        // это приводило к ошибке JavaScript, и вся логика переставала работать.
+        // Теперь, в случае ошибки, хранилище будет очищено, и работа продолжится.
+        try {
+            return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
+        } catch (e) {
+            console.error("Ошибка чтения ID из localStorage, хранилище будет очищено:", e);
+            localStorage.removeItem(STORAGE_KEY);
+            return new Set();
+        }
+    }
+
+    function saveSelectedIds(idsSet) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(idsSet)));
+    }
+
+    // --- Summary Panel Logic ---
+    function formatNumber(num, maxDecimals = 8) {
+        if (isNaN(num) || num === null) return '0';
+        if (Math.abs(num) < 1e-6) return Number(num).toExponential(4);
+        const fixed = Number(num).toFixed(maxDecimals);
+        const parts = fixed.replace(/\.?0+$/, '').split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+        return parts.join('.');
+    }
+
+    function updateSummary() {
+        const selectedIds = getSelectedIds();
+        // ИСПРАВЛЕНО: Получаем актуальный список чекбоксов со всей страницы
+        const selectedCheckboxesOnPage = Array.from(document.querySelectorAll('.tx-selector')).filter(cb => cb.checked);
+
+        if (selectedIds.size === 0) {
+            summaryPanel.style.display = 'none';
+            return;
+        }
+
+        const summaryData = {};
+        selectedCheckboxesOnPage.forEach(cb => {
+            const row = cb.closest('.transaction-row');
+            const type = row.dataset.type;
+            if (type !== 'buy' && type !== 'sell') return;
+
+            const pair = row.dataset.pair;
+            const asset1Amount = parseFloat(row.dataset.asset1Amount);
+            const asset2Amount = parseFloat(row.dataset.asset2Amount);
+            const asset1Ticker = row.dataset.asset1Ticker;
+            const asset2Ticker = row.dataset.asset2Ticker;
+
+            if (!summaryData[pair]) summaryData[pair] = {};
+            if (!summaryData[pair][type]) {
+                summaryData[pair][type] = {
+                    totalAsset1: 0, totalAsset2: 0, count: 0,
+                    asset1Ticker: asset1Ticker, asset2Ticker: asset2Ticker
+                };
+            }
+            summaryData[pair][type].totalAsset1 += asset1Amount;
+            summaryData[pair][type].totalAsset2 += asset2Amount;
+            summaryData[pair][type].count += 1;
+        });
+
+        let summaryHtml = `<div class="p-2"><strong>Всего выбрано: ${selectedIds.size}</strong> (на этой странице: ${selectedCheckboxesOnPage.length}). Сводка ниже посчитана только для выбранных на <strong>текущей</strong> странице.</div>`;
+
+        if (Object.keys(summaryData).length > 0) {
+            summaryHtml += `
+                <table class="table table-sm table-bordered mb-0 responsive-summary-table">
+                    <thead class="thead-light">
+                        <tr>
+                            <th>Тип</th><th>Пара</th><th>Кол-во</th><th>Объем</th><th>Стоимость</th><th>Ср. цена</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            for (const pair in summaryData) {
+                for (const type in summaryData[pair]) {
+                    const data = summaryData[pair][type];
+                    const avgPrice = data.totalAsset1 > 0 ? data.totalAsset2 / data.totalAsset1 : 0;
+                    const typeClass = type === 'buy' ? 'text-success' : 'text-danger';
+                    const typeText = type === 'buy' ? 'Покупка' : 'Продажа';
+                    summaryHtml += `
+                        <tr>
+                            <td data-label="Тип" class="${typeClass} font-weight-bold">${typeText}</td>
+                            <td data-label="Пара"><strong>${pair}</strong></td>
+                            <td data-label="Кол-во">${data.count}</td>
+                            <td data-label="Объем" class="text-monospace">${formatNumber(data.totalAsset1)} ${data.asset1Ticker}</td>
+                            <td data-label="Стоимость" class="text-monospace">${formatNumber(data.totalAsset2, 2)} ${data.asset2Ticker}</td>
+                            <td data-label="Ср. цена" class="text-monospace">${formatNumber(avgPrice, 4)} ${data.asset2Ticker}</td>
+                        </tr>
+                    `;
+                }
+            }
+            summaryHtml += '</tbody></table>';
+        }
+        
+        summaryContainer.innerHTML = summaryHtml;
+        summaryPanel.style.display = 'block';
+    }
+
+    // --- Event Handlers ---
+    function handleCheckboxChange(checkbox) {
+        const selectedIds = getSelectedIds();
+        if (checkbox.checked) {
+            selectedIds.add(checkbox.value);
+        } else {
+            selectedIds.delete(checkbox.value);
+        }
+        saveSelectedIds(selectedIds);
+        updateSummary();
+    }
+
+    // --- Initialization & Event Delegation ---
+    function syncCheckboxesWithStorage() {
+        const selectedIds = getSelectedIds();
+        document.querySelectorAll('.tx-selector').forEach(cb => {
+            cb.checked = selectedIds.has(cb.value);
+        });
+    }
+
+    syncCheckboxesWithStorage();
+    updateSummary();
+
+    selectAllCheckbox.addEventListener('change', function(e) {
+        // ИСПРАВЛЕНО: Получаем актуальный список чекбоксов
+        document.querySelectorAll('.tx-selector').forEach(cb => {
+            if (cb.checked !== e.target.checked) {
+                cb.checked = e.target.checked;
+                handleCheckboxChange(cb);
+            }
+        });
+    });
+    
+    // ИСПРАВЛЕНО: Используем делегирование событий для кликов по строкам и чекбоксам
+    tableBody.addEventListener('click', function(e) {
+        const row = e.target.closest('.transaction-row');
+        if (!row) return; // Клик был не на строке
+        if (e.target.tagName === 'A') return; // Игнорируем клики по ссылкам
+
+        // Если клик был не на чекбоксе, инвертируем его состояние
+        if (e.target.type !== 'checkbox') {
+            const cb = row.querySelector('.tx-selector');
+            if (cb) {
+                cb.checked = !cb.checked;
+                // Триггерим событие change вручную, чтобы сработал наш обработчик
+                cb.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+    });
+
+    tableBody.addEventListener('change', function(e) {
+        if (e.target.classList.contains('tx-selector')) {
+            handleCheckboxChange(e.target);
+        }
+    });
+
+    filterControls.forEach(control => {
+        control.addEventListener('change', function() {
+            saveSelectedIds(new Set()); // Очищаем выбор при смене фильтра
+        });
+    });
+
+    // --- Load More Logic ---
+    const loadMoreContainer = document.getElementById('load-more-container');
+    if (loadMoreContainer) {
+        const loadMoreBtn = document.getElementById('load-more-btn');
+
+        loadMoreBtn.addEventListener('click', async function() {
+            const nextPage = this.dataset.nextPage;
+            if (!nextPage) return;
+
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Загрузка...';
+
+            const urlParams = new URLSearchParams(window.location.search);
+            urlParams.set('page', nextPage);
+            
+            try {
+                const response = await fetch(`{{ url_for('main.api_crypto_transactions') }}?${urlParams.toString()}`);
+                if (!response.ok) throw new Error('Network response was not ok');
+                
+                const data = await response.json();
+                tableBody.insertAdjacentHTML('beforeend', data.html);
+
+                // После добавления новых строк, синхронизируем их состояние с localStorage
+                syncCheckboxesWithStorage();
+
+                if (data.has_next) {
+                    this.dataset.nextPage = parseInt(nextPage) + 1;
+                } else {
+                    loadMoreContainer.remove();
+                }
+            } catch (error) {
+                console.error('Failed to load more transactions:', error);
+                this.innerHTML = 'Ошибка загрузки';
+            } finally {
+                if (document.body.contains(this)) {
+                    this.disabled = false;
+                    this.innerHTML = 'Загрузить еще';
+                }
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

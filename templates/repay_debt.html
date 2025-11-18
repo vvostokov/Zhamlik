@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Погашение долга{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Погашение долга</h2>
+    <hr>
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Информация о долге</h5>
+            <p><strong>Тип:</strong> {% if debt.debt_type == 'i_owe' %}Я должен{% else %}Мне должны{% endif %}</p>
+            <p><strong>Контрагент:</strong> {{ debt.counterparty }}</p>
+            <p><strong>Общая сумма:</strong> {{ "%.2f"|format(debt.initial_amount) }} {{ debt.currency }}</p>
+            <p><strong>Уже погашено:</strong> {{ "%.2f"|format(debt.repaid_amount) }} {{ debt.currency }}</p>
+            <p class="font-weight-bold"><strong>Остаток к погашению:</strong> <span class="text-{{ 'danger' if debt.debt_type == 'i_owe' else 'success' }}">{{ "%.2f"|format(remaining_amount) }} {{ debt.currency }}</span></p>
+        </div>
+    </div>
+
+    {% if accounts %}
+    <form action="{{ url_for('main.repay_debt', debt_id=debt.id) }}" method="POST">
+        <div class="row">
+            <div class="form-group col-md-4">
+                <label for="amount">Сумма погашения *</label>
+                <input type="number" step="0.01" class="form-control" id="amount" name="amount" value="{{ "%.2f"|format(remaining_amount) }}" required>
+            </div>
+            <div class="form-group col-md-4">
+                <label for="date">Дата операции *</label>
+                <input type="date" class="form-control" id="date" name="date" value="{{ now.strftime('%Y-%m-%d') }}" required>
+            </div>
+            <div class="form-group col-md-4">
+                <label for="account_id">Счет для операции *</label>
+                <select class="form-control" id="account_id" name="account_id" required>
+                    {% for acc in accounts %}
+                    <option value="{{ acc.id }}">{{ acc.name }} ({{ "%.2f"|format(acc.balance) }} {{ acc.currency }})</option>
+                    {% endfor %}
+                </select>
+                <small class="form-text text-muted">Операция будет проведена с этого счета.</small>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="description">Описание</label>
+            <input type="text" class="form-control" id="description" name="description" placeholder="Например, частичное погашение долга">
+        </div>
+
+        <button type="submit" class="btn btn-success">Зарегистрировать погашение</button>
+        <a href="{{ url_for('main.ui_debts') }}" class="btn btn-secondary">Отмена</a>
+    </form>
+    {% elif debt.status == 'active' %}
+    <div class="alert alert-warning">
+        <p>Не найден ни один активный счет в валюте <strong>{{ debt.currency }}</strong> для выполнения операции.</p>
+        <p>Пожалуйста, <a href="{{ url_for('main.add_account') }}" class="alert-link">создайте счет</a> в нужной валюте.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

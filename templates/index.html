@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+
+{% block title %}Главная - Финансовый Помощник{% endblock %}
+
+{% macro render_change(change_value) %}
+    {% if change_value is not none and change_value != 0 %}
+        {% set color = 'text-success' if change_value > 0 else 'text-danger' %}
+        <span class="{{ color }}">
+            {{ "%.2f"|format(change_value) }}%
+            <i class="fas fa-arrow-{{ 'up' if change_value > 0 else 'down' }}"></i>
+        </span>
+    {% elif change_value == 0 %}
+        <span class="text-muted">0.00%</span>
+    {% else %}
+        <span class="text-muted">-</span>
+    {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="container mt-4">
+    <!-- Сводные карточки -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-4">
+            <div class="card text-center h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Общая стоимость</h5>
+                    <p class="card-text h3">{{ "%.2f"|format(net_worth_rub) }} RUB</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-4">
+            <div class="card text-center h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Портфель ЦБ</h5>
+                    <p class="card-text h4">{{ "%.2f"|format(securities_summary.total_rub) }} RUB</p>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="securitiesChangeDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            За день: {{ render_change(securities_summary.changes['1d']) }}
+                        </button>
+                        <div class="dropdown-menu" aria-labelledby="securitiesChangeDropdown">
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="#">
+                                <span>За 7 дней</span> {{ render_change(securities_summary.changes['7d']) }}
+                            </a>
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="#">
+                                <span>За 30 дней</span> {{ render_change(securities_summary.changes['30d']) }}
+                            </a>
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="#">
+                                <span>За полгода</span> {{ render_change(securities_summary.changes['180d']) }}
+                            </a>
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="#">
+                                <span>За год</span> {{ render_change(securities_summary.changes['365d']) }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-4">
+            <div class="card text-center h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Крипто-портфель</h5>
+                    <p class="card-text h4">{{ "%.2f"|format(crypto_summary.total_rub) }} RUB</p>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="cryptoChangeDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            За день: {{ render_change(crypto_summary.changes['1d']) }}
+                        </button>
+                        <div class="dropdown-menu" aria-labelledby="cryptoChangeDropdown">
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="#">
+                                <span>За 7 дней</span> {{ render_change(crypto_summary.changes['7d']) }}
+                            </a>
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="#">
+                                <span>За 30 дней</span> {{ render_change(crypto_summary.changes['30d']) }}
+                            </a>
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="#">
+                                <span>За полгода</span> {{ render_change(crypto_summary.changes['180d']) }}
+                            </a>
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="#">
+                                <span>За год</span> {{ render_change(crypto_summary.changes['365d']) }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-4">
+            <div class="card text-center h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Банковские счета</h5>
+                    <p class="card-text h4">{{ "%.2f"|format(banking_summary.total_rub) }} RUB</p>
+                    <p class="card-text"><span class="text-muted">-</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Debt Summary Row -->
+    <div class="row mb-4">
+        <div class="col-md-6 mb-4">
+            <div class="card text-center h-100 border-danger">
+                <div class="card-header bg-transparent border-danger text-danger">Мои долги (Я должен)</div>
+                <div class="card-body">
+                    <p class="card-text h3 text-danger">{{ "%.2f"|format(debt_summary.i_owe) }} RUB</p>
+                    <a href="{{ url_for('main.ui_debts') }}" class="btn btn-outline-danger mt-2">К долгам &rarr;</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 mb-4">
+            <div class="card text-center h-100 border-success">
+                <div class="card-header bg-transparent border-success text-success">Мне должны</div>
+                <div class="card-body">
+                    <p class="card-text h3 text-success">{{ "%.2f"|format(debt_summary.owed_to_me) }} RUB</p>
+                    <a href="{{ url_for('main.ui_debts') }}" class="btn btn-outline-success mt-2">К долгам &rarr;</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Summary Row for Debts and Last Txs -->
+    <div class="row">
+        <div class="col-lg-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Операции по ЦБ</h5>
+                    <a href="{{ url_for('securities.ui_securities_transactions') }}">Все операции &rarr;</a>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% if last_securities_txs %}
+                        {% for tx in last_securities_txs %}
+                            <div class="list-group-item">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <div>
+                                        <h6 class="mb-1">{{ tx.description }}</h6>
+                                        <small class="text-muted">{{ tx.source }}</small>
+                                    </div>
+                                    <div class="text-end">
+                                        <strong class="text-nowrap {% if tx.is_positive %}text-success{% else %}text-danger{% endif %}">{{ tx.value }}</strong>
+                                        <small class="d-block text-muted">{{ tx.timestamp.strftime('%d.%m %H:%M') }}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="list-group-item text-center text-muted">Операций не найдено.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Последние операции</h5>
+                    <a href="{{ url_for('main.ui_transactions') }}">Все операции &rarr;</a>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% if last_transactions %}
+                        {% for tx in last_transactions %}
+                            <div class="list-group-item">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <div>
+                                        <h6 class="mb-1">{{ tx.description }}</h6>
+                                        <small class="text-muted">{{ tx.source }}</small>
+                                    </div>
+                                    <div class="text-end">
+                                        <strong class="text-nowrap {% if tx.is_investment %}text-info{% elif tx.is_positive %}text-success{% else %}text-danger{% endif %}">{{ tx.value }}</strong>
+                                        <small class="d-block text-muted">{{ tx.timestamp.strftime('%d.%m %H:%M') }}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="list-group-item text-center text-muted">Операций не найдено.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Movers -->
+    <div class="row mb-4">
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    Топ-5 активов ЦБ
+                    <a href="{{ url_for('securities.ui_securities_assets') }}" class="btn btn-sm btn-outline-primary">Все активы &rarr;</a>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Актив</th>
+                                <th class="text-right">Стоимость</th>
+                                <th class="text-right">24ч</th>
+                                <th class="text-right">7д</th>
+                                <th class="text-right">30д</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for item in top_5_securities %}
+                            <tr>
+                                <td><strong>{{ item.asset.ticker }}</strong><br><small class="text-muted">{{ item.asset.name | truncate(25) }}</small></td>
+                                <td class="text-right text-nowrap">{{ "%.0f"|format(item.value_rub) }} ₽</td>
+                                <td class="text-right text-nowrap">{{ render_change(item.changes.get('1d')) }}</td>
+                                <td class="text-right text-nowrap">{{ render_change(item.changes.get('7d')) }}</td>
+                                <td class="text-right text-nowrap">{{ render_change(item.changes.get('30d')) }}</td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="5" class="text-muted text-center">Нет активов для отображения.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    Топ-5 крипто-активов
+                    <a href="{{ url_for('main.ui_crypto_assets') }}" class="btn btn-sm btn-outline-primary">Все активы &rarr;</a>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                         <thead>
+                            <tr>
+                                <th>Актив</th>
+                                <th class="text-right">Стоимость</th>
+                                <th class="text-right">24ч</th>
+                                <th class="text-right">7д</th>
+                                <th class="text-right">30д</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for item in top_5_crypto %}
+                            <tr>
+                                <td><strong>{{ item.ticker }}</strong><br><small class="text-muted">{{ item.name }}</small></td>
+                                <td class="text-right text-nowrap">{{ "%.0f"|format(item.value_rub) }} ₽</td>
+                                <td class="text-right text-nowrap">{{ render_change(item.changes.get('1d')) }}</td>
+                                <td class="text-right text-nowrap">{{ render_change(item.changes.get('7d')) }}</td>
+                                <td class="text-right text-nowrap">{{ render_change(item.changes.get('30d')) }}</td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="5" class="text-muted text-center">Нет активов для отображения.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Вклады и накопительные счета -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">Вклады и накопительные счета</div>
+                <div class="card-body">
+                    {% if deposits_and_savings %}
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Счет</th>
+                                    <th>Тип</th>
+                                    <th class="text-right">Баланс</th>
+                                    <th class="text-right">Ставка</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for acc in deposits_and_savings %}
+                                <tr>
+                                    <td>{{ acc.name }}</td>
+                                    <td>{{ 'Вклад' if acc.account_type == 'deposit' else 'Накопительный' }}</td>
+                                    <td class="text-right"><strong>{{ "%.2f"|format(acc.balance) }} {{ acc.currency }}</strong></td>
+                                    <td class="text-right">{{ acc.interest_rate or '-' }}%</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted">Нет активных вкладов или накопительных счетов.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Управление аналитикой -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">Управление данными</div>
+                <div class="card-body">
+                    <!-- ИСПРАВЛЕНО: Кнопка пересчета истории ЦБ была перенесена. Эта кнопка теперь обновляет историю крипто-портфеля. -->
+                    <form action="{{ url_for('main.ui_refresh_portfolio_history') }}" method="POST" class="d-inline">
+                        <button type="submit" class="btn btn-info">Пересчитать историю крипто-портфеля</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

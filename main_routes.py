@@ -1935,7 +1935,10 @@ def ui_counterparty_history(counterparty):
     debts = Debt.query.filter_by(counterparty=counterparty).order_by(Debt.created_at.desc()).all()
 
     # Получить все транзакции по контрагенту (counterparty или merchant)
-    transactions = BankingTransaction.query.filter(
+    transactions = BankingTransaction.query.options(
+        joinedload(BankingTransaction.account_ref),
+        joinedload(BankingTransaction.category_ref)
+    ).filter(
         (BankingTransaction.counterparty == counterparty) | (BankingTransaction.merchant == counterparty)
     ).order_by(BankingTransaction.date.desc()).all()
 

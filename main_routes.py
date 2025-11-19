@@ -1514,12 +1514,68 @@ def ui_debts():
     # Fetch all recurring payments
     recurring_payments = RecurringPayment.query.all()    
 
+    # --- NEW LOGIC START: Data for Header and Counterparties Tab ---
+    today = date.today()
+    seven_days_from_now = today + timedelta(days=7)
+
+    # 1. Upcoming Debts (I owe, active, due in next 7 days)
+    upcoming_debts = [
+        d for d in i_owe_list 
+        if d.status == 'active' and d.due_date and today <= d.due_date <= seven_days_from_now
+    ]
+    upcoming_debts.sort(key=lambda d: d.due_date)
+
+    # 2. Upcoming Recurring Payments (next due date in next 7 days)
+    upcoming_recurring_payments = [
+        p for p in recurring_payments 
+        if today <= p.next_due_date <= seven_days_from_now
+    ]
+    upcoming_recurring_payments.sort(key=lambda p: p.next_due_date)
+
+    # 3. Counterparty Balances
+    # {counterparty: {currency: {'balance': Decimal, 'i_owe_exists': bool, 'owed_to_me_exists': bool}}}
+    counterparty_data = defaultdict(lambda: defaultdict(lambda: {'balance': Decimal(0), 'i_owe_exists': False, 'owed_to_me_exists': False}))
+
+    # Process Debts
+    for debt in i_owe_list:
+        if debt.status == 'active':
+            remaining = debt.initial_amount - debt.repaid_amount
+            # I owe: negative balance
+            counterparty_data[debt.counterparty][debt.currency]['balance'] -= remaining
+            counterparty_data[debt.counterparty][debt.currency]['i_owe_exists'] = True
+
+    for debt in owed_to_me_list:
+        if debt.status == 'active':
+            remaining = debt.initial_amount - debt.repaid_amount
+            # Owed to me: positive balance
+            counterparty_data[debt.counterparty][debt.currency]['balance'] += remaining
+            counterparty_data[debt.counterparty][debt.currency]['owed_to_me_exists'] = True
+            
+    # Format counterparty balances for template
+    formatted_balances = []
+    for counterparty, currency_balances in counterparty_data.items():
+        for currency, data in currency_balances.items():
+            if data['balance'] != Decimal(0):
+                formatted_balances.append({
+                    'counterparty': counterparty,
+                    'currency': currency,
+                    'balance': data['balance'],
+                    'can_net': data['i_owe_exists'] and data['owed_to_me_exists']
+                })
+    
+    # Sort by counterparty name
+    formatted_balances.sort(key=lambda x: x['counterparty'])
+    # --- NEW LOGIC END ---
+
     return render_template('debts.html', 
                            i_owe_list=i_owe_list, 
                            owed_to_me_list=owed_to_me_list,
                            i_owe_total=i_owe_total,
                            owed_to_me_total=owed_to_me_total,
-                           recurring_payments=recurring_payments)
+                           recurring_payments=recurring_payments,
+                           upcoming_debts=upcoming_debts,
+                           upcoming_recurring_payments=upcoming_recurring_payments,
+                           counterparty_balances=formatted_balances)
 def _create_debt_from_recurring_payment(payment: RecurringPayment):
     """Creates a new Debt record from a RecurringPayment."""
     current_app.logger.info(f"--- [Recurring Payments] Checking recurring payment: {payment.description} - {payment.next_due_date}")
@@ -1545,7 +1601,7 @@ def _create_debt_from_recurring_payment(payment: RecurringPayment):
 def add_debt():
 
     """
-    Создает долги из регулярных платежей, проверяя дату и создавая долг за 20 дней до next_due_date.
+    Создает долги из регулярных платежей, проверяя дату и создавая долг в запланированный день next_due_date.
         """
     current_app.logger.info("--- [MANUAL] add_debt called ---")
     with current_app.app_context():
@@ -1555,7 +1611,7 @@ def add_debt():
         today = date.today()
         for payment in recurring_payments:
             days_until_due = (payment.next_due_date - today).days
-            if 0 <= days_until_due <= 20:
+            if 0 <= days_until_due <= 3:
                 _create_debt_from_recurring_payment(payment)
     
         db.session.commit()        
@@ -1635,12 +1691,145 @@ def repay_debt(debt_id):
     debt = Debt.query.get_or_404(debt_id)
     remaining_amount = debt.initial_amount - debt.repaid_amount
     if request.method == 'POST':
-        pass
+        try:
+            amount = Decimal(request.form['amount'])
+            account_id = int(request.form['account_id'])
+            date_str = request.form['date']
+            description = request.form.get('description', f'Погашение долга: {debt.counterparty}')
+            
+            if amount <= 0:
+                flash('Сумма погашения должна быть положительной.', 'danger')
+                return redirect(url_for('main.repay_debt', debt_id=debt.id))
+
+            if amount > remaining_amount:
+                flash(f'Сумма погашения ({amount:.2f} {debt.currency}) превышает остаток долга ({remaining_amount:.2f} {debt.currency}).', 'danger')
+                return redirect(url_for('main.repay_debt', debt_id=debt.id))
+
+            account = Account.query.get_or_404(account_id)
+            
+            # Determine transaction type and balance change
+            if debt.debt_type == 'i_owe':
+                # I owe -> I pay -> Expense, Account balance decreases
+                tx_type = 'expense'
+                account.balance -= amount
+            else: # owed_to_me
+                # Owed to me -> I receive -> Income, Account balance increases
+                tx_type = 'income'
+                account.balance += amount
+
+            # 1. Create BankingTransaction
+            new_tx = BankingTransaction(
+                amount=amount,
+                transaction_type=tx_type,
+                date=datetime.strptime(date_str, '%Y-%m-%d').date(),
+                description=description,
+                account_id=account.id,
+                debt_id=debt.id
+            )
+            
+            # 2. Update Debt
+            debt.repaid_amount += amount
+            if debt.repaid_amount >= debt.initial_amount:
+                debt.status = 'repaid'
+                flash(f'Долг перед "{debt.counterparty}" полностью погашен!', 'success')
+            else:
+                flash(f'Частичное погашение долга перед "{debt.counterparty}" на сумму {amount:.2f} {debt.currency} успешно зарегистрировано.', 'success')
+
+            # 3. Commit changes
+            db.session.add(new_tx)
+            db.session.commit()
+            
+            return redirect(url_for('main.ui_debts'))
+
+        except InvalidOperation:
+            flash('Некорректный формат суммы.', 'danger')
+            return redirect(url_for('main.repay_debt', debt_id=debt.id))
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error during debt repayment: {e}")
+            flash('Произошла ошибка при регистрации погашения долга.', 'danger')
+            return redirect(url_for('main.repay_debt', debt_id=debt.id))
     accounts = Account.query.filter_by(is_active=True, currency=debt.currency).order_by(Account.name).all()
     if not accounts and debt.status == 'active':
         flash(f'Не найден ни один активный счет в валюте {debt.currency} для выполнения операции.', 'warning')
     
     return render_template('repay_debt.html', debt=debt, remaining_amount=remaining_amount, accounts=accounts, now=datetime.now(timezone.utc))
+
+@main_bp.route('/debts/netting', methods=['POST'])
+def ui_net_debt():
+    counterparty = request.form.get('counterparty')
+    currency = request.form.get('currency')
+    
+    if not counterparty or not currency:
+        flash('Необходимо указать контрагента и валюту.', 'danger')
+        return redirect(url_for('main.ui_debts'))
+
+    try:
+        # 1. Find all active debts for netting
+        i_owe_debts = Debt.query.filter_by(
+            debt_type='i_owe', 
+            counterparty=counterparty, 
+            currency=currency, 
+            status='active'
+        ).order_by(Debt.created_at.asc()).all()
+        
+        owed_to_me_debts = Debt.query.filter_by(
+            debt_type='owed_to_me', 
+            counterparty=counterparty, 
+            currency=currency, 
+            status='active'
+        ).order_by(Debt.created_at.asc()).all()
+
+        total_i_owe = sum(d.initial_amount - d.repaid_amount for d in i_owe_debts)
+        total_owed_to_me = sum(d.initial_amount - d.repaid_amount for d in owed_to_me_debts)
+        
+        netting_amount = min(total_i_owe, total_owed_to_me)
+        
+        if netting_amount <= 0:
+            flash(f'Недостаточно активных долгов для взаимозачета с контрагентом "{counterparty}" в валюте {currency}.', 'warning')
+            return redirect(url_for('main.ui_debts'))
+
+        remaining_netting = netting_amount
+
+        # 2. Apply netting to 'i_owe' debts (my debt is repaid)
+        for debt in i_owe_debts:
+            if remaining_netting <= 0:
+                break
+            
+            remaining_debt = debt.initial_amount - debt.repaid_amount
+            amount_to_repay = min(remaining_debt, remaining_netting)
+            
+            debt.repaid_amount += amount_to_repay
+            remaining_netting -= amount_to_repay
+            
+            if debt.initial_amount == debt.repaid_amount:
+                debt.status = 'repaid'
+        
+        remaining_netting = netting_amount # Reset for the other side
+
+        # 3. Apply netting to 'owed_to_me' debts (their debt is repaid)
+        for debt in owed_to_me_debts:
+            if remaining_netting <= 0:
+                break
+            
+            remaining_debt = debt.initial_amount - debt.repaid_amount
+            amount_to_repay = min(remaining_debt, remaining_netting)
+            
+            debt.repaid_amount += amount_to_repay
+            remaining_netting -= amount_to_repay
+            
+            if debt.initial_amount == debt.repaid_amount:
+                debt.status = 'repaid'
+
+        db.session.commit()
+        flash(f'Взаимозачет с контрагентом "{counterparty}" на сумму {netting_amount:,.2f} {currency} успешно выполнен.', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Ошибка при взаимозачете долгов: {e}", exc_info=True)
+        flash(f'Произошла ошибка при взаимозачете: {e}', 'danger')
+
+    return redirect(url_for('main.ui_debts'))
 
 @main_bp.route('/analytics')
 def ui_analytics_overview():    
@@ -1896,27 +2085,27 @@ def ui_analytics_overview():
         end_date=end_date.strftime('%Y-%m-%d')
     )
 
-@main_bp.route('/recurring_payments/add', methods=['POST'])# noqa
-@main_bp.route('/recurring_payments/add', methods=['POST'])# noqa
+@main_bp.route('/recurring_payments/add', methods=['POST'])
 def add_recurring_payment():  # noqa
-    """Обрабатывает добавление нового регулярного платежа."""
+    """Handles adding a new recurring payment."""
+    try:
+        description = request.form['description']
+        frequency = request.form['frequency']
+        amount = Decimal(request.form['amount'])
+        currency = request.form['currency']
+        next_due_date_str = request.form.get('next_due_date')
 
-    description = request.form.get('description') # noqa
-    frequency = request.form.get('frequency') # noqa
-    amount = request.form.get('amount') # noqa
-    next_due_date = request.form.get('next_due_date') # noqa
-    currency = request.form.get('currency') # noqa
+        next_due_date = datetime.strptime(next_due_date_str, '%Y-%m-%d').date() if next_due_date_str else date.today()
 
-    if next_due_date:
-        new_recurring_payment = RecurringPayment(description=description, frequency=frequency, amount=amount, currency=currency, next_due_date=datetime.strptime(next_due_date, '%Y-%m-%d').date(), user_id=1) # noqa # Возможно, вам захочется связать платежи с пользователями
-    else:
-        new_recurring_payment = RecurringPayment(description=description, frequency=frequency, amount=amount, currency=currency, next_due_date=date.today(), user_id=1)
+        new_recurring_payment = RecurringPayment(description=description, frequency=frequency, amount=amount, currency=currency, next_due_date=next_due_date, user_id=1) # noqa # Возможно, вам захочется связать платежи с пользователями
 
-
-    db.session.add(new_recurring_payment)
-    db.session.commit()
-    flash(f'Регулярный платеж "{description}" добавлен.', 'success')
-    return redirect(url_for('main.ui_debts'))
+        db.session.add(new_recurring_payment)
+        db.session.commit()
+        flash(f'Регулярный платеж "{description}" добавлен.', 'success')
+        return redirect(url_for('main.ui_debts'))
+    except (ValueError, InvalidOperation) as e:
+        flash(f'Ошибка в данных: {e}', 'danger')
+        return redirect(url_for('main.ui_debts')) # Or render a form with errors
 
 @main_bp.route('/recurring_payments/<int:payment_id>/edit', methods=['POST']) # noqa
 def edit_recurring_payment(payment_id): # noqa
@@ -1946,6 +2135,26 @@ def delete_recurring_payment(payment_id): # noqa
     db.session.commit()
     flash('Регулярный платеж успешно удален.', 'success')
     return redirect(url_for('main.ui_debts'))
+
+@main_bp.route('/banking-planning')
+def ui_planning():
+    """Отображает страницу планирования с предстоящими долгами и регулярными платежами."""
+    
+    # 1. Получаем активные долги, которые нужно погасить (i_owe)
+    # Сортируем по дате погашения
+    active_debts = Debt.query.filter_by(
+        debt_type='i_owe', 
+        status='active'
+    ).order_by(Debt.due_date.asc()).all()
+    
+    # 2. Получаем все регулярные платежи
+    recurring_payments = RecurringPayment.query.order_by(RecurringPayment.next_due_date.asc()).all()
+    
+    return render_template(
+        'banking_planning.html',
+        active_debts=active_debts,
+        recurring_payments=recurring_payments
+    )
 
 @main_bp.route('/cashback_rules')
 def ui_cashback_rules():

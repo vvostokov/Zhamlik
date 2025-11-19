@@ -82,20 +82,12 @@ def create_app():
     @app.template_filter()
     def trim_zeros(value):
         if isinstance(value, Decimal):
-            value = value.normalize().to_eng_string()
+            # Format as a standard decimal string without scientific notation
+            value = "{:f}".format(value)
         if isinstance(value, str) and '.' in value:
             return value.rstrip('0').rstrip('.')
         return value
 
-    @app.template_filter()
-    def money_format(value, precision=2):
-        """Форматирует число как денежную сумму с пробелами в качестве разделителей тысяч."""
-        if value is None:
-            return '-'
-        try:
-            return f"{Decimal(value):,.{precision}f}".replace(',', ' ')
-        except (ValueError, TypeError):
-            return str(value)
     @app.template_filter()
     def money_format(value, precision=2):
         """Форматирует число как денежную сумму с пробелами в качестве разделителей тысяч."""

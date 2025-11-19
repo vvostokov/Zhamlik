@@ -106,12 +106,12 @@
         <!-- Поле для контрагента -->
         <div class="form-group mb-3">
             <label for="counterparty">Контрагент</label>
-            <select class="form-select" id="counterparty" name="counterparty">
-                <option value="">-- Не указан --</option>
+            <input class="form-control" list="counterpartyOptions" id="counterparty" name="counterparty" placeholder="Выберите или введите нового..." autocomplete="off">
+            <datalist id="counterpartyOptions">
                 {% for cp in counterparties %}
-                <option value="{{ cp }}">{{ cp }}</option>
+                <option value="{{ cp }}">
                 {% endfor %}
-            </select>
+            </datalist>
         </div>
 
         <!-- Общее поле для описания -->

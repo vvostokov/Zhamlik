@@ -1338,14 +1338,94 @@ def ui_add_transaction_form():
 
 @main_bp.route('/transactions/<int:tx_id>/edit', methods=['GET', 'POST'])
 def ui_edit_transaction_form(tx_id):
-    # Placeholder
     transaction = BankingTransaction.query.options(joinedload(BankingTransaction.items)).get_or_404(tx_id)
-    accounts = Account.query.order_by(Account.name).all()
+    
+    if request.method == 'POST':
+        try:
+            # Обновление общих полей
+            transaction.date = datetime.strptime(request.form['date'], '%Y-%m-%dT%H:%M')
+            transaction.description = request.form.get('description')
+            transaction.counterparty = request.form.get('counterparty') or None
 
+            # Логика обновления баланса только для простых типов (Расход/Доход)
+            # Для переводов и обменов пока поддерживается только изменение описания/даты/контрагента
+            if transaction.transaction_type in ['expense', 'income']:
+                old_amount = transaction.amount
+                old_account_id = transaction.account_id
+                
+                # Получаем новые значения
+                new_account_id = int(request.form['account_id'])
+                
+                # Обработка суммы (через товары или напрямую)
+                new_amount = Decimal(0)
+                if transaction.items:
+                     # Обновление товаров
+                     item_names = request.form.getlist('item_name[]')
+                     item_quantities = request.form.getlist('item_quantity[]')
+                     item_prices = request.form.getlist('item_price[]')
+                     item_categories = request.form.getlist('item_category_id[]')
+                     
+                     # Удаляем старые (проще всего)
+                     TransactionItem.query.filter_by(transaction_id=transaction.id).delete()
+                     
+                     for i in range(len(item_names)):
+                         qty = Decimal(item_quantities[i])
+                         price = Decimal(item_prices[i])
+                         total = qty * price
+                         new_amount += total
+                         
+                         cat_id = int(item_categories[i]) if item_categories[i] else None
+                         new_item = TransactionItem(name=item_names[i], quantity=qty, price=price, total=total, transaction_id=transaction.id, category_id=cat_id)
+                         db.session.add(new_item)
+                else:
+                     new_amount = Decimal(request.form['amount'])
+                     transaction.category_id = int(request.form['category_id']) if request.form.get('category_id') else None
+
+                # Если сумма или счет изменились - корректируем балансы
+                if old_amount != new_amount or old_account_id != new_account_id:
+                    # 1. Откат старой транзакции
+                    old_account = Account.query.get(old_account_id)
+                    if transaction.transaction_type == 'expense':
+                        if old_account.account_type == 'credit': old_account.balance += old_amount
+                        else: old_account.balance += old_amount
+                    elif transaction.transaction_type == 'income':
+                        if old_account.account_type == 'credit': old_account.balance -= old_amount
+                        else: old_account.balance -= old_amount
+                    
+                    # 2. Применение новой транзакции
+                    new_account = Account.query.get(new_account_id)
+                    if transaction.transaction_type == 'expense':
+                        if new_account.account_type == 'credit': new_account.balance -= new_amount
+                        else: new_account.balance -= new_amount
+                    elif transaction.transaction_type == 'income':
+                        if new_account.account_type == 'credit': new_account.balance += new_amount
+                        else: new_account.balance += new_amount
+
+                transaction.amount = new_amount
+                transaction.account_id = new_account_id
+
+            db.session.commit()
+            flash('Транзакция успешно обновлена.', 'success')
+            return redirect(url_for('main.ui_transactions'))
+
+        except (ValueError, InvalidOperation) as e:
+            db.session.rollback()
+            flash(f'Ошибка при обновлении: {e}', 'danger')
+
+    accounts = Account.query.order_by(Account.name).all()
     categories = Category.query.order_by(Category.name).all()
     expense_categories = Category.query.filter_by(type='expense', parent_id=None).order_by(Category.name).options(joinedload(Category.subcategories)).all()
 
-    return render_template('edit_transaction.html', transaction=transaction, accounts=accounts, categories=categories, expense_categories=expense_categories)
+    # Fetch counterparties
+    debt_counterparties = db.session.query(Debt.counterparty).filter(Debt.counterparty.isnot(None)).distinct().all()
+    tx_counterparties = db.session.query(BankingTransaction.counterparty).filter(BankingTransaction.counterparty.isnot(None)).distinct().all()
+    tx_merchants = db.session.query(BankingTransaction.merchant).filter(BankingTransaction.merchant.isnot(None)).distinct().all()
+    counterparties = set()
+    for cp in debt_counterparties + tx_counterparties + tx_merchants:
+        counterparties.add(cp[0])
+    counterparties = sorted(list(counterparties))
+
+    return render_template('edit_transaction.html', transaction=transaction, accounts=accounts, categories=categories, expense_categories=expense_categories, counterparties=counterparties)
 
 
 @main_bp.route('/accounts/add', methods=['GET', 'POST'])

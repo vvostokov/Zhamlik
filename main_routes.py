@@ -1822,7 +1822,8 @@ def repay_debt(debt_id):
                 description=description,
                 account_id=account.id,
                 debt_id=debt.id,
-                category_id=category_id
+                category_id=category_id,
+                counterparty=debt.counterparty
             )
             
             # 2. Update Debt

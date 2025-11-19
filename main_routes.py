@@ -1183,6 +1183,34 @@ def ui_add_transaction_form():
                     counterparty=request.form.get('counterparty') or None
                 )
                 db.session.add(new_tx)
+
+                # --- АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ДОЛГА ---
+                # Если категория содержит "долг" (регистронезависимо)
+                category_id = int(request.form.get('category_id')) if request.form.get('category_id') else None
+                if category_id:
+                    category = Category.query.get(category_id)
+                    if category and 'долг' in category.name.lower():
+                        # Определяем тип долга на основе типа транзакции
+                        # Expense + "В долг" -> Я дал в долг -> Мне должны (owed_to_me)
+                        # Income + "В долг" -> Я взял в долг -> Я должен (i_owe)
+                        debt_type = 'owed_to_me' if tx_type == 'expense' else 'i_owe'
+                        counterparty_name = request.form.get('counterparty')
+                        
+                        if counterparty_name:
+                            new_debt = Debt(
+                                debt_type=debt_type,
+                                counterparty=counterparty_name,
+                                initial_amount=amount,
+                                currency=account.currency,
+                                status='active',
+                                description=f"Автоматически создан из транзакции: {request.form.get('description') or ''}",
+                                created_at=datetime.strptime(request.form.get('date'), '%Y-%m-%dT%H:%M')
+                            )
+                            db.session.add(new_debt)
+                            flash(f'Автоматически создан долг для контрагента "{counterparty_name}".', 'info')
+                        else:
+                             flash('Для создания долга необходимо указать контрагента.', 'warning')
+                # -------------------------------------
             
             elif tx_type == 'income':
                 amount = Decimal(request.form.get('amount', '0'))
@@ -1203,6 +1231,31 @@ def ui_add_transaction_form():
                     counterparty=request.form.get('counterparty') or None
                 )
                 db.session.add(new_tx)
+
+                # --- АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ДОЛГА (INCOME) ---
+                category_id = int(request.form.get('category_id')) if request.form.get('category_id') else None
+                if category_id:
+                    category = Category.query.get(category_id)
+                    if category and 'долг' in category.name.lower():
+                        # Income + "В долг" -> Я взял в долг -> Я должен (i_owe)
+                        debt_type = 'i_owe'
+                        counterparty_name = request.form.get('counterparty')
+                        
+                        if counterparty_name:
+                            new_debt = Debt(
+                                debt_type=debt_type,
+                                counterparty=counterparty_name,
+                                initial_amount=amount,
+                                currency=account.currency,
+                                status='active',
+                                description=f"Автоматически создан из транзакции: {request.form.get('description') or ''}",
+                                created_at=datetime.strptime(request.form.get('date'), '%Y-%m-%dT%H:%M')
+                            )
+                            db.session.add(new_debt)
+                            flash(f'Автоматически создан долг для контрагента "{counterparty_name}".', 'info')
+                        else:
+                             flash('Для создания долга необходимо указать контрагента.', 'warning')
+                # ----------------------------------------------
 
             elif tx_type == 'transfer':
                 amount = Decimal(request.form.get('amount', '0'))
@@ -1405,9 +1458,13 @@ def ui_edit_transaction_form(tx_id):
                     elif transaction.transaction_type == 'income':
                         if new_account.account_type == 'credit': new_account.balance += new_amount
                         else: new_account.balance += new_amount
-
+                
+                # Обновляем сумму и счет в объекте транзакции
                 transaction.amount = new_amount
                 transaction.account_id = new_account_id
+                if transaction.transaction_type == 'expense':
+                    # Если это расход, обновляем также категорию, если она была изменена
+                    transaction.category_id = int(request.form['category_id']) if request.form.get('category_id') else None
 
             db.session.commit()
             flash('Транзакция успешно обновлена.', 'success')
@@ -1653,13 +1710,13 @@ def ui_debts():
     formatted_balances = []
     for counterparty, currency_balances in counterparty_data.items():
         for currency, data in currency_balances.items():
-            if data['balance'] != Decimal(0):
-                formatted_balances.append({
-                    'counterparty': counterparty,
-                    'currency': currency,
-                    'balance': data['balance'],
-                    'can_net': data['i_owe_exists'] and data['owed_to_me_exists']
-                })
+            # Display even if balance is zero so history can be accessed
+            formatted_balances.append({
+                'counterparty': counterparty,
+                'currency': currency,
+                'balance': data['balance'],
+                'can_net': data['i_owe_exists'] and data['owed_to_me_exists']
+            })
     
     # Sort by counterparty name
     formatted_balances.sort(key=lambda x: x['counterparty'])
@@ -1913,16 +1970,31 @@ def repay_debt(debt_id):
             
             # 2. Update Debt
             debt.repaid_amount += amount
-            if debt.repaid_amount >= debt.initial_amount:
-                debt.status = 'repaid'
-                flash(f'Долг перед "{debt.counterparty}" полностью погашен!', 'success')
-            else:
-                flash(f'Частичное погашение долга перед "{debt.counterparty}" на сумму {amount:.2f} {debt.currency} успешно зарегистрировано.', 'success')
+                if debt.repaid_amount >= debt.initial_amount:
+                    debt.status = 'repaid'
+                    flash(f'Долг перед "{debt.counterparty}" полностью погашен!', 'success')
+                else:
+                    flash(f'Долг перед "{debt.counterparty}" частично погашен.', 'success')
 
-            # 3. Commit changes
-            db.session.add(new_tx)
-            db.session.commit()
+            # Создаем транзакцию погашения долга
+            if description:
+                tx_desc = f"Погашение долга: {description}"
+            else:
+                tx_desc = f"Погашение долга: {debt.description or ''}"
             
+            new_tx = BankingTransaction(
+                amount=amount,
+                transaction_type=tx_type,
+                date=datetime.strptime(date_str, '%Y-%m-%d').date(),
+                description=tx_desc,
+                account_id=account.id,
+                debt_id=debt.id,
+                category_id=category_id,
+                counterparty=debt.counterparty
+            )
+            db.session.add(new_tx)
+            
+            db.session.commit()
             return redirect(url_for('main.ui_debts'))
 
         except InvalidOperation:

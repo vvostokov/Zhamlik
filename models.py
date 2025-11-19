@@ -325,6 +325,7 @@ class RecurringPayment(db.Model):
     amount = db.Column(db.Numeric(20, 2), nullable=False)
     currency = db.Column(db.String(16), nullable=False)
     next_due_date = db.Column(db.Date, nullable=False)
+    counterparty = db.Column(db.String(255), nullable=True)
     user_id = db.Column(db.Integer, nullable=False) # To associate with a user, if needed later
 
     def __repr__(self):

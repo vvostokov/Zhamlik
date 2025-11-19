@@ -1930,6 +1930,9 @@ def ui_counterparty_history(counterparty):
     # Декодируем counterparty из URL
     from urllib.parse import unquote
     counterparty = unquote(counterparty)
+    if not counterparty:
+        flash('Контрагент не указан.', 'danger')
+        return redirect(url_for('main.ui_debts'))
 
     # Получить все долги по контрагенту
     debts = Debt.query.filter_by(counterparty=counterparty).order_by(Debt.created_at.desc()).all()

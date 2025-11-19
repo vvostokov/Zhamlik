@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 
-from extensions import db, migrate, scheduler
+from extensions import db, migrate, scheduler, login_manager
 
 def create_app():
     """Application Factory."""
@@ -77,6 +77,7 @@ def create_app():
     migrate.init_app(app, db)
     scheduler.init_app(app)
     scheduler.start()
+    login_manager.init_app(app)
 
     # --- Register Jinja Filters ---
     @app.template_filter()
@@ -114,12 +115,14 @@ def create_app():
     # --- Register Blueprints ---
     with app.app_context():
         # Import blueprints inside the context
-        from main_routes import main_bp
+        from routes import main_bp
+        from routes.auth import auth_bp
         from api_routes import api_bp
         from commands import analytics_cli, seed_cli
         from securities_logic import securities_bp
 
         app.register_blueprint(main_bp)
+        app.register_blueprint(auth_bp)
         app.register_blueprint(securities_bp)
         app.register_blueprint(api_bp, url_prefix='/api')
         app.cli.add_command(analytics_cli)

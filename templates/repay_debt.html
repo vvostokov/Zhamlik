@@ -17,39 +17,119 @@
         </div>
     </div>
 
-    {% if accounts %}
-    <form action="{{ url_for('main.repay_debt', debt_id=debt.id) }}" method="POST">
-        <div class="row">
-            <div class="form-group col-md-4">
-                <label for="amount">Сумма погашения *</label>
-                <input type="number" step="0.01" class="form-control" id="amount" name="amount" value="{{ "%.2f"|format(remaining_amount) }}" required>
-            </div>
-            <div class="form-group col-md-4">
-                <label for="date">Дата операции *</label>
-                <input type="date" class="form-control" id="date" name="date" value="{{ now.strftime('%Y-%m-%d') }}" required>
-            </div>
-            <div class="form-group col-md-4">
-                <label for="account_id">Счет для операции *</label>
-                <select class="form-control" id="account_id" name="account_id" required>
-                    {% for acc in accounts %}
-                    <option value="{{ acc.id }}">{{ acc.name }} ({{ "%.2f"|format(acc.balance) }} {{ acc.currency }})</option>
-                    {% endfor %}
-                </select>
-                <small class="form-text text-muted">Операция будет проведена с этого счета.</small>
-            </div>
+    {% if debt.status == 'active' %}
+    <div class="mb-3">
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="repay_method" id="methodAccount" value="account" checked>
+            <label class="form-check-label" for="methodAccount">Погашение счетом</label>
         </div>
-        <div class="form-group">
-            <label for="description">Описание</label>
-            <input type="text" class="form-control" id="description" name="description" placeholder="Например, частичное погашение долга">
+        {% if all_netting_debts %}
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="repay_method" id="methodNetting" value="netting">
+            <label class="form-check-label" for="methodNetting">Взаимозачет долгом</label>
+        </div>
+        {% endif %}
+    </div>
+
+    <form action="{{ url_for('main.repay_debt', debt_id=debt.id) }}" method="POST">
+        
+        <!-- ФОРМА ПОГАШЕНИЯ СЧЕТОМ -->
+        <div id="accountRepayForm">
+            {% if accounts %}
+            <div class="row">
+                <div class="form-group col-md-4">
+                    <label for="amount">Сумма погашения *</label>
+                    <input type="number" step="0.01" class="form-control" id="amount" name="amount" value="{{ "%.2f"|format(remaining_amount) }}" required>
+                </div>
+                <div class="form-group col-md-4">
+                    <label for="date">Дата операции *</label>
+                    <input type="date" class="form-control" id="date" name="date" value="{{ now.strftime('%Y-%m-%d') }}" required>
+                </div>
+                <div class="form-group col-md-4">
+                    <label for="account_id">Счет для операции *</label>
+                    <select class="form-control" id="account_id" name="account_id" required>
+                        {% for acc in accounts %}
+                        <option value="{{ acc.id }}">{{ acc.name }} ({{ "%.2f"|format(acc.balance) }} {{ acc.currency }})</option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-text text-muted">Операция будет проведена с этого счета.</small>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="description">Описание</label>
+                <input type="text" class="form-control" id="description" name="description" placeholder="Например, частичное погашение долга">
+            </div>
+            <button type="submit" class="btn btn-success">Зарегистрировать погашение</button>
+            {% else %}
+            <div class="alert alert-warning">
+                <p>Не найден ни один активный счет в валюте <strong>{{ debt.currency }}</strong> для выполнения операции.</p>
+                <p>Пожалуйста, <a href="{{ url_for('main.add_account') }}" class="alert-link">создайте счет</a> в нужной валюте.</p>
+            </div>
+            {% endif %}
         </div>
 
-        <button type="submit" class="btn btn-success">Зарегистрировать погашение</button>
-        <a href="{{ url_for('main.ui_debts') }}" class="btn btn-secondary">Отмена</a>
+        <!-- ФОРМА ВЗАИМОЗАЧЕТА -->
+        <div id="nettingRepayForm" style="display: none;">
+            {% if all_netting_debts %}
+            <div class="form-group">
+                <label for="netting_debt_id">Встречный долг для взаимозачета *</label>
+                <select class="form-control" id="netting_debt_id" name="netting_debt_id">
+                    {% for netting_debt in all_netting_debts %}
+                    <option value="{{ netting_debt.id }}">
+                        {{ netting_debt.counterparty }} ({{ "%.2f"|format(netting_debt.initial_amount - netting_debt.repaid_amount) }} {{ netting_debt.currency }})
+                        {% if netting_debt.counterparty != debt.counterparty %} - ДРУГОЙ КОНТРАГЕНТ{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small class="form-text text-muted">Будет погашена наименьшая из двух оставшихся сумм.</small>
+            </div>
+            <button type="submit" class="btn btn-info">Выполнить взаимозачет</button>
+            {% else %}
+            <div class="alert alert-info">
+                Нет активных встречных долгов в валюте <strong>{{ debt.currency }}</strong> для взаимозачета.
+            </div>
+            {% endif %}
+        </div>
+
+        <a href="{{ url_for('main.ui_debts') }}" class="btn btn-secondary mt-3">Отмена</a>
     </form>
-    {% elif debt.status == 'active' %}
-    <div class="alert alert-warning">
-        <p>Не найден ни один активный счет в валюте <strong>{{ debt.currency }}</strong> для выполнения операции.</p>
-        <p>Пожалуйста, <a href="{{ url_for('main.add_account') }}" class="alert-link">создайте счет</a> в нужной валюте.</p>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const methodAccount = document.getElementById('methodAccount');
+            const methodNetting = document.getElementById('methodNetting');
+            const accountForm = document.getElementById('accountRepayForm');
+            const nettingForm = document.getElementById('nettingRepayForm');
+
+            function toggleForms() {
+                if (methodAccount && methodAccount.checked) {
+                    accountForm.style.display = 'block';
+                    nettingForm.style.display = 'none';
+                    // Сброс required для скрытой формы
+                    nettingForm.querySelectorAll('[required]').forEach(el => el.removeAttribute('required'));
+                    accountForm.querySelectorAll('input, select').forEach(el => {
+                        if (el.id !== 'netting_debt_id') el.setAttribute('required', '');
+                    });
+                } else if (methodNetting && methodNetting.checked) {
+                    accountForm.style.display = 'none';
+                    nettingForm.style.display = 'block';
+                    // Установка required для формы взаимозачета
+                    nettingForm.querySelectorAll('select').forEach(el => el.setAttribute('required', ''));
+                    // Сброс required для скрытой формы
+                    accountForm.querySelectorAll('[required]').forEach(el => el.removeAttribute('required'));
+                }
+            }
+
+            if (methodAccount) methodAccount.addEventListener('change', toggleForms);
+            if (methodNetting) methodNetting.addEventListener('change', toggleForms);
+
+            // Инициализация
+            toggleForms();
+        });
+    </script>
+    {% else %}
+    <div class="alert alert-info">
+        Долг полностью погашен.
     </div>
     {% endif %}
 </div>

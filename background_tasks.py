@@ -7,7 +7,7 @@ from news_logic import get_crypto_news, get_securities_news
 from logic.platform_sync_logic import sync_platform_balances, sync_platform_transactions
 from models import InvestmentPlatform, JsonCache
 from api_clients import fetch_usdt_rub_rate
-from main_routes import _create_debt_from_recurring_payment
+from routes.debts import _create_debt_from_recurring_payment
 from extensions import db
 
 

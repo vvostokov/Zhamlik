@@ -1,14 +1,8 @@
-{% extends "base.html" %}
-
-{% block title %}Счета{% endblock %}
-
-{% block content %}
-<div class="container mt-4">
+<div class="mt-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2>Мои счета</h2>
+        <h4>Список счетов</h4>
         <a href="{{ url_for('main.add_account') }}" class="btn btn-primary">Добавить счет</a>
     </div>
-    <hr>
     {% if accounts %}
     <div class="table-responsive">
         <table class="table table-hover">
@@ -60,4 +54,3 @@
     </div>
     {% endif %}
 </div>
-{% endblock %}

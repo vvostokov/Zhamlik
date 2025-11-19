@@ -12,7 +12,7 @@
             <input type="text" class="form-control" id="name" name="name" value="{{ bank.name if bank else '' }}" required autofocus>
         </div>
         <button type="submit" class="btn btn-primary">Сохранить</button>
-        <a href="{{ url_for('main.ui_banks') }}" class="btn btn-secondary">Отмена</a>
+        <a href="{{ url_for('main.ui_banking_overview') }}" class="btn btn-secondary">Отмена</a>
     </form>
 </div>
 {% endblock %}

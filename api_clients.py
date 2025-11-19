@@ -1400,7 +1400,7 @@ class BaseTransactionProcessor:
     def _add_transaction(self, tx_data):
         """Вспомогательный метод для добавления новой транзакции в сессию."""
         if tx_data['exchange_tx_id'] not in self.existing_tx_ids:
-            db.session.add(Transaction(platform_id=self.platform.id, **tx_data))
+            db.session.add(Transaction(platform_id=self.platform.id, user_id=self.platform.user_id, **tx_data))
             self.added_count += 1
 
     # Методы-заглушки, которые будут переопределены в дочерних классах

@@ -1,7 +1,25 @@
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask_login import UserMixin
 import os
 from datetime import datetime, timezone
 from cryptography.fernet import Fernet
 from extensions import db
+
+class User(UserMixin, db.Model):
+    __tablename__ = 'user'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=True)
+    password_hash = db.Column(db.String(256))
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    def __repr__(self):
+        return f'<User {self.username}>'
 
 class InvestmentPlatform(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -10,6 +28,7 @@ class InvestmentPlatform(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     api_key = db.Column(db.String(256))
     notes = db.Column(db.Text)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True) # Temporarily nullable
     _api_secret = db.Column('api_secret', db.String(512))
 
     @property
@@ -143,6 +162,7 @@ class Transaction(db.Model):
     description = db.Column(db.Text)
     platform_id = db.Column(db.Integer, db.ForeignKey('investment_platform.id'), nullable=False)
     platform = db.relationship('InvestmentPlatform', back_populates='transactions')
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True) # Temporarily nullable
 
     def __repr__(self):
         return f'<Transaction {self.id} on {self.timestamp}>'
@@ -156,6 +176,7 @@ class Account(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     is_external = db.Column(db.Boolean, default=False, nullable=False) # Счет мне не принадлежит
     notes = db.Column(db.Text)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True) # Temporarily nullable
     # Поля для иерархии счетов
     parent_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
     parent = db.relationship('Account', remote_side=[id], back_populates='sub_accounts')
@@ -181,6 +202,7 @@ class Category(db.Model):
     name = db.Column(db.String(128), nullable=False)
     type = db.Column(db.String(50), nullable=False)
     parent_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True) # Temporarily nullable
     
     parent = db.relationship('Category', remote_side=[id], back_populates='subcategories')
     subcategories = db.relationship('Category', back_populates='parent', cascade="all, delete-orphan")
@@ -201,6 +223,7 @@ class Debt(db.Model):
     due_date = db.Column(db.Date, nullable=True)
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True) # Temporarily nullable
 
     def __repr__(self):
         return f'<Debt {self.id} from/to {self.counterparty}>'
@@ -219,6 +242,7 @@ class BankingTransaction(db.Model):
     to_account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
     debt_id = db.Column(db.Integer, db.ForeignKey('debt.id'), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True) # Temporarily nullable
     account_ref = db.relationship('Account', foreign_keys=[account_id], backref=db.backref('transactions', lazy='dynamic'))
     to_account_ref = db.relationship('Account', foreign_keys=[to_account_id], backref=db.backref('incoming_transfers', lazy='dynamic'))
     category_ref = db.relationship('Category', backref=db.backref('transactions', lazy='dynamic'))
@@ -326,7 +350,7 @@ class RecurringPayment(db.Model):
     currency = db.Column(db.String(16), nullable=False)
     next_due_date = db.Column(db.Date, nullable=False)
     counterparty = db.Column(db.String(255), nullable=True)
-    user_id = db.Column(db.Integer, nullable=False) # To associate with a user, if needed later
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) # To associate with a user, if needed later
 
     def __repr__(self):
         return f'<RecurringPayment {self.description} - {self.amount} {self.currency}>'

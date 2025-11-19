@@ -62,7 +62,8 @@ def sync_platform_balances(platform: InvestmentPlatform):
                 new_asset = InvestmentAsset(
                     ticker=ticker, name=ticker, asset_type='crypto', quantity=quantity,
                     current_price=current_price, currency_of_price='USDT',
-                    platform_id=platform.id, source_account_type=account_type
+                    platform_id=platform.id, source_account_type=account_type,
+                    user_id=platform.user_id # Inherit user_id from platform
                 )
                 db.session.add(new_asset)
                 added_count += 1

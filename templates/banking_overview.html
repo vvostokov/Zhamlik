@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Счета и Банки{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Финансы</h2>
+    <hr>
+
+    <ul class="nav nav-tabs" id="bankingTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <a class="nav-link active" id="accounts-tab" data-toggle="tab" href="#accounts" role="tab" aria-controls="accounts" aria-selected="true">Счета</a>
+        </li>
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="banks-tab" data-toggle="tab" href="#banks" role="tab" aria-controls="banks" aria-selected="false">Банки</a>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="bankingTabsContent">
+        <div class="tab-pane fade show active" id="accounts" role="tabpanel" aria-labelledby="accounts-tab">
+            {% include 'accounts_tab_content.html' %}
+        </div>
+        <div class="tab-pane fade" id="banks" role="tabpanel" aria-labelledby="banks-tab">
+            {% include 'banks_tab_content.html' %}
+        </div>
+    </div>
+</div>
+
+<script>
+    // Активация табов Bootstrap
+    $(function () {
+        $('#bankingTabs a').on('click', function (e) {
+            e.preventDefault()
+            $(this).tab('show')
+        })
+    })
+</script>
+{% endblock %}

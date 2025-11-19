@@ -108,16 +108,10 @@
             <div class="row mt-4">
                 <div class="col-md-6">
                     <div class="card">
-                        <div class="card-header">Топ-10 Категорий расходов (30 дней)</div>
+                        <div class="card-header">Общие расходы по категориям (30 дней)</div>
                         <div class="card-body">
-                            <canvas id="categorySpendingChart"></canvas>
-                            <ul>
-                                {% if category_labels %}
-                                    {% for i in range(category_labels|length) %}
-                                        <li>{{ category_labels[i] }}: {{ category_percentages[i] }}%</li>
-                                    {% endfor %}
-                                {% else %}<li>Нет данных о категориях расходов.</li>{% endif %}
-                            </ul>
+                            <canvas id="combinedCategorySpendingChart"></canvas>
+                            <div id="combinedCategorySpendingList" class="mt-3"></div>
                         </div>
                     </div>
                 </div>
@@ -144,13 +138,7 @@
                         <div class="card-header">Расходы по покупкам (детализация чеков)</div>
                         <div class="card-body">
                             <canvas id="purchaseCategorySpendingChart"></canvas>
-                            <ul>
-                                {% if purchase_category_labels %}
-                                    {% for i in range(purchase_category_labels|length) %}
-                                        <li>{{ purchase_category_labels[i] }}: {{ purchase_category_percentages[i] }}%</li>
-                                    {% endfor %}
-                                {% else %}<li>Нет данных о покупках.</li>{% endif %}
-                            </ul>
+                            <div id="purchaseCategorySpendingList" class="mt-3"></div>
                         </div>
                     </div>
                 </div>
@@ -252,9 +240,14 @@
     const purchaseCategoryData = JSON.parse('{{ purchase_category_data | safe }}');
     const purchaseCategoryPercentages = JSON.parse('{{ purchase_category_percentages | safe }}');
     
+    // Объединенные расходы по категориям
+    const combinedCategoryLabels = JSON.parse('{{ combined_category_labels | safe }}');
+    const combinedCategoryData = JSON.parse('{{ combined_category_data | safe }}');
+    const combinedCategoryPercentages = JSON.parse('{{ combined_category_percentages | safe }}');
+    
     try {
-        // 1. Расходы по категориям (Bar)
-        new Chart(document.getElementById('categorySpendingChart'), { type: 'bar', data: { labels: categoryLabels, datasets: [{ label: 'Сумма', data: categoryData, backgroundColor: 'rgba(255, 99, 132, 0.5)' }] } });
+        // 1. Общие расходы по категориям (Bar)
+        new Chart(document.getElementById('combinedCategorySpendingChart'), { type: 'bar', data: { labels: combinedCategoryLabels, datasets: [{ label: 'Сумма', data: combinedCategoryData, backgroundColor: 'rgba(255, 99, 132, 0.5)' }] } });
         
         // 2. Доходы и расходы (Pie)
         new Chart(document.getElementById('incomeExpenseChart'), { 
@@ -363,6 +356,30 @@
     } catch (error) {
         console.error("Error creating chart:", error);
     }
+
+    // Динамическая генерация списка категорий
+    function renderCategoryList(labels, percentages, elementId) {
+        const listElement = document.getElementById(elementId);
+        if (!listElement) return;
+
+        if (labels && labels.length > 0) {
+            let html = '<ul class="list-unstyled">';
+            for (let i = 0; i < labels.length; i++) {
+                html += `<li><strong>${labels[i]}</strong>: ${percentages[i]}%</li>`;
+            }
+            html += '</ul>';
+            listElement.innerHTML = html;
+        } else {
+            listElement.innerHTML = '<p>Нет данных о расходах по категориям.</p>';
+        }
+    }
+
+    // Вызов функции для объединенных расходов
+    renderCategoryList(combinedCategoryLabels, combinedCategoryPercentages, 'combinedCategorySpendingList');
+    
+    // Вызов функции для расходов по покупкам
+    renderCategoryList(purchaseCategoryLabels, purchaseCategoryPercentages, 'purchaseCategorySpendingList');
+
 </script>
 
 

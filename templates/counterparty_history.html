@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}История по контрагенту: {{ counterparty }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>История по контрагенту: {{ counterparty }}</h2>
+        <a href="{{ url_for('main.ui_debts') }}" class="btn btn-secondary">Назад к долгам</a>
+    </div>
+    <hr>
+
+    <!-- Общий баланс -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Общий баланс</h5>
+                    <p class="card-text">
+                        <strong class="text-{{ 'danger' if total_debt_balance < 0 else 'success' }}">
+                            {{ "%.2f"|format(total_debt_balance|abs) }} {{ currencies|join(', ') if currencies else 'RUB' }}
+                        </strong>
+                        {% if total_debt_balance < 0 %}
+                            (Вы должны)
+                        {% elif total_debt_balance > 0 %}
+                            (Вам должны)
+                        {% else %}
+                            (Баланс нулевой)
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Долги -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h4>Долги</h4>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Тип</th>
+                            <th>Сумма</th>
+                            <th>Валюта</th>
+                            <th>Дата создания</th>
+                            <th>Срок</th>
+                            <th>Статус</th>
+                            <th>Погашено</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for debt in debts %}
+                        <tr>
+                            <td>
+                                {% if debt.debt_type == 'i_owe' %}
+                                    <span class="badge badge-danger">Я должен</span>
+                                {% else %}
+                                    <span class="badge badge-success">Мне должны</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ "%.2f"|format(debt.initial_amount) }}</td>
+                            <td>{{ debt.currency }}</td>
+                            <td>{{ debt.created_at.strftime('%d.%m.%Y') }}</td>
+                            <td>
+                                {% if debt.due_date %}
+                                    {{ debt.due_date.strftime('%d.%m.%Y') }}
+                                {% else %}
+                                    Бессрочно
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if debt.status == 'active' %}
+                                    <span class="badge badge-warning">Активен</span>
+                                {% elif debt.status == 'repaid' %}
+                                    <span class="badge badge-success">Погашен</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">{{ debt.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ "%.2f"|format(debt.repaid_amount) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted">Нет долгов по этому контрагенту.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Транзакции -->
+    <div class="row">
+        <div class="col-md-12">
+            <h4>Транзакции</h4>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Тип</th>
+                            <th>Сумма</th>
+                            <th>Валюта</th>
+                            <th>Описание</th>
+                            <th>Категория</th>
+                            <th>Счет</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in transactions %}
+                        <tr>
+                            <td>{{ tx.date.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>
+                                {% if tx.transaction_type == 'income' %}
+                                    <span class="badge badge-success">Доход</span>
+                                {% elif tx.transaction_type == 'expense' %}
+                                    <span class="badge badge-danger">Расход</span>
+                                {% elif tx.transaction_type == 'transfer' %}
+                                    <span class="badge badge-info">Перевод</span>
+                                {% elif tx.transaction_type == 'exchange' %}
+                                    <span class="badge badge-warning">Обмен</span>
+                                {% else %}
+                                    {{ tx.transaction_type }}
+                                {% endif %}
+                            </td>
+                            <td>{{ "%.2f"|format(tx.amount) }}</td>
+                            <td>{{ tx.account_ref.currency }}</td>
+                            <td>{{ tx.description or '' }}</td>
+                            <td>{{ tx.category_ref.name if tx.category_ref else '-' }}</td>
+                            <td>{{ tx.account_ref.name }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted">Нет транзакций по этому контрагенту.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

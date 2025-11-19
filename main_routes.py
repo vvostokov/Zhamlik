@@ -1924,6 +1924,38 @@ def ui_net_debt(counterparty, currency):
 
     return redirect(url_for('main.ui_debts'))
 
+@main_bp.route('/counterparty/<path:counterparty>/history')
+def ui_counterparty_history(counterparty):
+    """Отображает историю транзакций и долгов по контрагенту."""
+    # Декодируем counterparty из URL
+    from urllib.parse import unquote
+    counterparty = unquote(counterparty)
+
+    # Получить все долги по контрагенту
+    debts = Debt.query.filter_by(counterparty=counterparty).order_by(Debt.created_at.desc()).all()
+
+    # Получить все транзакции по контрагенту (counterparty или merchant)
+    transactions = BankingTransaction.query.filter(
+        (BankingTransaction.counterparty == counterparty) | (BankingTransaction.merchant == counterparty)
+    ).order_by(BankingTransaction.date.desc()).all()
+
+    # Рассчитать общий баланс
+    total_debt_balance = Decimal(0)
+    for debt in debts:
+        if debt.debt_type == 'i_owe':
+            total_debt_balance -= (debt.initial_amount - debt.repaid_amount)
+        else:
+            total_debt_balance += (debt.initial_amount - debt.repaid_amount)
+
+    # Валюты - предположим, что все в одной валюте, или показать по валютам
+    currencies = set()
+    for debt in debts:
+        currencies.add(debt.currency)
+    for tx in transactions:
+        currencies.add(tx.account_ref.currency)
+
+    return render_template('counterparty_history.html', counterparty=counterparty, debts=debts, transactions=transactions, total_debt_balance=total_debt_balance, currencies=currencies)
+
 @main_bp.route('/analytics')
 def ui_analytics_overview():    
     start_date_str = request.args.get('start_date')

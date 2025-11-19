@@ -267,6 +267,7 @@
                             <th>Контрагент</th>
                             <th class="text-right">Баланс</th>
                             <th>Валюта</th>
+                            <th>Действия</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -279,10 +280,18 @@
                                 </strong>
                             </td>
                             <td>{{ item.currency }}</td>
+                             <td>
+                                 <a href="{{ url_for('main.ui_counterparty_history', counterparty=item.counterparty) }}" class="btn btn-sm btn-info">История</a>
+                                 {% if item.can_net %}
+                                 <a href="{{ url_for('main.ui_net_debt', counterparty=item.counterparty, currency=item.currency) }}" class="btn btn-sm btn-warning" onclick="return confirm('Вы уверены, что хотите выполнить автоматический взаимозачет всех активных долгов с контрагентом {{ item.counterparty }} в валюте {{ item.currency }}?');">
+                                     Взаимозачет
+                                 </a>
+                                 {% endif %}
+                             </td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="3" class="text-center text-muted">Нет активных балансов по контрагентам.</td>
+                            <td colspan="4" class="text-center text-muted">Нет активных балансов по контрагентам.</td>
                         </tr>
                         {% endfor %}
                     </tbody>

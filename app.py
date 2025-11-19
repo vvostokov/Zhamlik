@@ -50,7 +50,7 @@ def create_app():
             'id': 'job_update_news_cache',
             'func': 'background_tasks:update_all_news_in_background',
             'trigger': 'interval',
-            'minutes': 30
+            'hours': 1
         },
         {
             'id': 'job_sync_platforms',
@@ -62,7 +62,7 @@ def create_app():
             'id': 'job_update_usdt_rub_rate',
             'func': 'background_tasks:update_usdt_rub_rate_in_background',
             'trigger': 'interval',
-            'minutes': 15 # Обновлять курс каждые 15 минут
+            'hours': 1 # Обновлять курс каждый час
         },
         {
             'id': 'job_create_debts_from_recurring_payments',

@@ -19,6 +19,7 @@ from api_clients import (
     SYNC_DISPATCHER, SYNC_TRANSACTIONS_DISPATCHER, PRICE_TICKER_DISPATCHER,
     _convert_bybit_timestamp, fetch_bybit_spot_tickers, fetch_bitget_spot_tickers,
 )
+from analytics_logic import get_performance_chart_data_from_cache
 
 def _get_or_create_category(name: str, type: str) -> Category:
     """Находит или создает категорию с заданным именем и типом."""

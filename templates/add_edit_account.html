@@ -10,106 +10,142 @@
         <div class="row">
             <div class="col-md-6 mb-3">
                 <label for="name">Название счета</label>
-                <input type="text" class="form-control" id="name" name="name" value="{{ account.name if account else '' }}" required>
+                <input type="text" class="form-control" id="name" name="name" value="{{ current_data.name if current_data and 'name' in current_data else (account.name if account and account.name is not none else '') }}" required autofocus>
             </div>
             <div class="col-md-6 mb-3">
                 <label for="account_type">Тип счета</label>
                 <select class="form-control" id="account_type" name="account_type" required>
-                    <option value="bank_account" {% if account and account.account_type == 'bank_account' %}selected{% endif %}>Банковский счет</option>
-                    <option value="bank_card" {% if account and account.account_type == 'bank_card' %}selected{% endif %}>Банковская карта</option>
-                    <option value="deposit" {% if account and account.account_type == 'deposit' %}selected{% endif %}>Вклад</option>
-                    <option value="credit" {% if account and account.account_type == 'credit' %}selected{% endif %}>Кредитная карта</option>
-                    <option value="cash" {% if account and account.account_type == 'cash' %}selected{% endif %}>Наличные</option>
+                    <option value="">-- Выберите тип --</option>
+                    {% set selected_type = current_data.account_type if current_data and 'account_type' in current_data else (account.account_type if account else '') %}
+                    <option value="bank_account" {% if selected_type == 'bank_account' %}selected{% endif %}>Банковский счет</option>
+                    <option value="deposit" {% if selected_type == 'deposit' %}selected{% endif %}>Вклад/Накопительный счет</option>
+                    <option value="bank_card" {% if selected_type == 'bank_card' %}selected{% endif %}>Банковская карта</option>
+                    <option value="credit" {% if selected_type == 'credit' %}selected{% endif %}>Кредитная карта</option>
+                    <option value="cash" {% if selected_type == 'cash' %}selected{% endif %}>Наличные</option>
+                    <option value="e_wallet" {% if selected_type == 'e_wallet' %}selected{% endif %}>Электронный кошелек</option>
+                    <option value="other" {% if selected_type == 'other' %}selected{% endif %}>Другое</option>
                 </select>
             </div>
         </div>
+
         <div class="row">
-            <div class="col-md-6 mb-3">
+            <div class="col-md-4 mb-3">
+                <label for="currency">Валюта (RUB, USD, EUR, etc.)</label>
+                <input type="text" class="form-control" id="currency" name="currency" value="{{ current_data.currency if current_data and 'currency' in current_data else (account.currency if account and account.currency is not none else 'RUB') }}" maxlength="5" required>
+            </div>
+            <div class="col-md-4 mb-3">
+                <label for="balance">Текущий баланс</label>
+                <input type="number" step="0.01" class="form-control" id="balance" name="balance" value="{{ current_data.balance if current_data and 'balance' in current_data else ('%.2f'|format(account.balance) if account and account.balance is not none else '0.00') }}" required>
+                <small class="form-text text-muted">Для кредитных карт это текущий долг (отрицательное значение).</small>
+            </div>
+            <div class="col-md-4 mb-3">
                 <label for="bank_id">Банк</label>
                 <select class="form-control" id="bank_id" name="bank_id">
                     <option value="">-- Не указан --</option>
+                    {% set selected_bank = current_data.bank_id if current_data and 'bank_id' in current_data else (account.bank_id if account else '') %}
                     {% for bank in banks %}
-                    <option value="{{ bank.id }}" {% if account and account.bank_id == bank.id %}selected{% endif %}>{{ bank.name }}</option>
+                    <option value="{{ bank.id }}" {% if selected_bank == bank.id|string %}selected{% endif %}>{{ bank.name }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-6 mb-3">
-                <label for="currency">Валюта</label>
-                <input type="text" class="form-control" id="currency" name="currency" value="{{ account.currency if account else 'RUB' }}" required>
-            </div>
         </div>
+
         <div class="row">
             <div class="col-md-6 mb-3">
-                <label for="parent_id">Родительский счет (Субсчет)</label>
+                <label for="parent_id">Родительский счет (для субрасчетов)</label>
                 <select class="form-control" id="parent_id" name="parent_id">
                     <option value="">-- Нет родительского счета --</option>
                     {% for acc in all_accounts %}
-                    <option value="{{ acc.id }}" {% if account and account.id != acc.id and account.parent_id == acc.id %}selected{% endif %}>{{ acc.name }} ({{ acc.currency }})</option>
+                        {% if acc.id != (account.id if account else -1) %}
+                        <option value="{{ acc.id }}" {% if account and account.parent_id == acc.id %}selected{% endif %}>{{ acc.name }} ({{ acc.currency }})</option>
+                        {% endif %}
                     {% endfor %}
                 </select>
             </div>
-        </div>
-        <div class="form-group mb-3">
-            <label for="balance" id="balance_label">Текущий баланс</label>
-            <input type="number" step="0.01" class="form-control" id="balance" name="balance" value="{{ account.balance if account else '0.00' }}" required>
-            <small id="balance_help" class="form-text text-muted">Для кредитных карт укажите текущую сумму задолженности.</small>
+            <div class="col-md-6 mb-3">
+                <label for="notes">Заметки</label>
+                <textarea class="form-control" id="notes" name="notes" rows="1">{{ current_data.notes if current_data and 'notes' in current_data else (account.notes if account and account.notes is not none else '') }}</textarea>
+            </div>
         </div>
 
-        <!-- Поля для кредитных карт -->
+        <!-- Поля для вкладов (Deposit) -->
+        <div id="deposit-fields" style="display: none;">
+            <h5 class="mt-3">Параметры вклада</h5>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="interest_rate">Процентная ставка (%)</label>
+                    <input type="number" step="0.01" class="form-control" id="interest_rate" name="interest_rate" value="{{ current_data.interest_rate if current_data and 'interest_rate' in current_data else (account.interest_rate if account and account.interest_rate is not none else '') }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="start_date">Дата открытия</label>
+                    <input type="date" class="form-control" id="start_date" name="start_date" value="{{ current_data.start_date if current_data and 'start_date' in current_data else (account.start_date.strftime('%Y-%m-%d') if account and account.start_date is not none else '') }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="end_date">Дата окончания</label>
+                    <input type="date" class="form-control" id="end_date" name="end_date" value="{{ account.end_date.strftime('%Y-%m-%d') if account and account.end_date is not none else '' }}">
+                </div>
+            </div>
+        </div>
+
+        <!-- Поля для кредитных карт (Credit) -->
         <div id="credit-fields" style="display: none;">
+            <h5 class="mt-3">Параметры кредитной карты</h5>
             <div class="row">
                 <div class="col-md-6 mb-3">
-                    <label for="credit_limit">Кредитный лимит</p>
-                    <input type="number" step="0.01" class="form-control" id="credit_limit" name="credit_limit" value="{{ account.credit_limit if account else '' }}">
+                    <label for="credit_limit">Кредитный лимит</label>
+                    <input type="number" step="0.01" class="form-control" id="credit_limit" name="credit_limit" value="{{ current_data.credit_limit if current_data and 'credit_limit' in current_data else ('%.2f'|format(account.credit_limit) if account and account.credit_limit is not none else '0.00') }}">
                 </div>
                 <div class="col-md-6 mb-3">
-                    <label for="grace_period_days">Льготный период (дней)</p>
-                    <input type="number" class="form-control" id="grace_period_days" name="grace_period_days" value="{{ account.grace_period_days if account else '' }}">
+                    <label for="grace_period_days">Льготный период (дней)</label>
+                    <input type="number" step="1" class="form-control" id="grace_period_days" name="grace_period_days" value="{{ current_data.grace_period_days if current_data and 'grace_period_days' in current_data else (account.grace_period_days if account and account.grace_period_days is not none else '0') }}">
                 </div>
             </div>
         </div>
 
-        <div class="form-group mb-3">
-            <label for="notes">Заметки</label>
-            <textarea class="form-control" id="notes" name="notes" rows="3">{{ account.notes if account else '' }}</textarea>
+        <div class="form-check mb-3">
+            {% set is_active_checked = (current_data and 'is_active' in current_data) or (account is none or (account and account.is_active)) %}
+            <input type="checkbox" class="form-check-input" id="is_active" name="is_active" {% if is_active_checked %}checked{% endif %}>
+            <label class="form-check-label" for="is_active">Активный счет</label>
         </div>
-        <div class="row">
-            <div class="col-md-6">
-                <div class="form-check mb-3">
-                    <input type="checkbox" class="form-check-input" id="is_active" name="is_active" {% if not account or account.is_active %}checked{% endif %}>
-                    <label class="form-check-label" for="is_active">Счет активен</label>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="form-check mb-3">
-                    <input type="checkbox" class="form-check-input" id="is_external" name="is_external" {% if account and account.is_external %}checked{% endif %}>
-                    <label class="form-check-label" for="is_external">Счет мне не принадлежит (Исключить из общего баланса)</label>
-                </div>
-            </div>
+        <div class="form-check mb-3">
+            {% set is_external_checked = (current_data and 'is_external' in current_data) or (account and account.is_external) %}
+            <input type="checkbox" class="form-check-input" id="is_external" name="is_external" {% if is_external_checked %}checked{% endif %}>
+            <label class="form-check-label" for="is_external">Внешний счет (не мой, например, счет контрагента)</label>
         </div>
+
         <button type="submit" class="btn btn-primary">Сохранить</button>
-        <a href="{{ url_for('main.ui_accounts') }}" class="btn btn-secondary">Отмена</a>
+        <a href="{{ url_for('main.ui_banking_overview') }}" class="btn btn-secondary">Отмена</a>
     </form>
 </div>
-{% endblock %}
 
-{% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const accountTypeSelect = document.getElementById('account_type');
-    const creditFields = document.getElementById('credit-fields');
-    const balanceLabel = document.getElementById('balance_label');
-    const balanceHelp = document.getElementById('balance_help');
+    document.addEventListener('DOMContentLoaded', function() {
+        const accountTypeSelect = document.getElementById('account_type');
+        const depositFields = document.getElementById('deposit-fields');
+        const creditFields = document.getElementById('credit-fields');
 
-    function toggleCreditFields() {
-        const isCredit = accountTypeSelect.value === 'credit';
-        creditFields.style.display = isCredit ? 'block' : 'none';
-        balanceLabel.textContent = isCredit ? 'Текущая задолженность' : 'Текущий баланс';
-        balanceHelp.style.display = isCredit ? 'block' : 'none';
-    }
+        function toggleFields() {
+            const selectedType = accountTypeSelect.value;
+            
+            // Reset fields before hiding
+            if (selectedType !== 'deposit') {
+                document.getElementById('interest_rate').value = '';
+                document.getElementById('start_date').value = '';
+                document.getElementById('end_date').value = '';
+            }
+            if (selectedType !== 'credit') {
+                document.getElementById('credit_limit').value = '0.00';
+                document.getElementById('grace_period_days').value = '0';
+            }
 
-    accountTypeSelect.addEventListener('change', toggleCreditFields);
-    toggleCreditFields(); // Initial check on page load
-});
+            depositFields.style.display = (selectedType === 'deposit') ? 'block' : 'none';
+            creditFields.style.display = (selectedType === 'credit') ? 'block' : 'none';
+        }
+
+        accountTypeSelect.addEventListener('change', toggleFields);
+        
+        // Initial call to set the correct state on page load (for edit mode)
+        toggleFields();
+    });
 </script>
 {% endblock %}

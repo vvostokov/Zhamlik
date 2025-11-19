@@ -1,6 +1,7 @@
 import os
 import json
 from datetime import datetime, date, timezone, timedelta
+from dateutil.relativedelta import relativedelta
 from collections import namedtuple, defaultdict
 from flask import (Blueprint, render_template, request, redirect, url_for, flash, current_app, g, jsonify) # noqa
 from decimal import Decimal, InvalidOperation
@@ -17,17 +18,16 @@ from models import (
 from api_clients import (
     SYNC_DISPATCHER, SYNC_TRANSACTIONS_DISPATCHER, PRICE_TICKER_DISPATCHER,
     _convert_bybit_timestamp, fetch_bybit_spot_tickers, fetch_bitget_spot_tickers,
-    fetch_bingx_spot_tickers, fetch_kucoin_spot_tickers, fetch_okx_spot_tickers,
-    fetch_cryptocompare_news,
-    TRANSACTION_PROCESSOR_DISPATCHER
 )
-from analytics_logic import (
-    refresh_crypto_price_change_data, refresh_crypto_portfolio_history, refresh_securities_portfolio_history,
-    get_performance_chart_data_from_cache, refresh_performance_chart_data, refresh_market_leaders_cache)
-from securities_logic import fetch_moex_market_leaders, fetch_moex_securities_metadata # noqa
-from news_logic import get_crypto_news, get_securities_news
-from logic.news_analysis import get_news_trends_for_portfolio
-from logic.platform_sync_logic import sync_platform_balances, sync_platform_transactions
+
+def _get_or_create_category(name: str, type: str) -> Category:
+    """Находит или создает категорию с заданным именем и типом."""
+    category = Category.query.filter_by(name=name, type=type, parent_id=None).first()
+    if not category:
+        category = Category(name=name, type=type, parent_id=None)
+        db.session.add(category)
+        # db.session.commit() # Не коммитим здесь, чтобы коммит был один в repay_debt
+    return category
 
 main_bp = Blueprint('main', __name__)
 
@@ -807,10 +807,12 @@ def ui_securities_news():
 # (All other routes like /accounts, /transactions, /categories, /debts, /crypto-assets, etc. go here)
 # IMPORTANT: Remember to change redirects like `url_for('index')` to `url_for('main.index')`
 
-@main_bp.route('/accounts')
-def ui_accounts():
+@main_bp.route('/banking-overview')
+def ui_banking_overview():
+    """Отображает объединенную страницу счетов и банков."""
     accounts = Account.query.order_by(Account.is_active.desc(), Account.name).all()
-    return render_template('accounts.html', accounts=accounts)
+    banks = Bank.query.order_by(Bank.name).all()
+    return render_template('banking_overview.html', accounts=accounts, banks=banks)
 
 @main_bp.route('/crypto-assets')
 def ui_crypto_assets():
@@ -1343,10 +1345,11 @@ def add_account():
             db.session.add(new_account)
             db.session.commit()
             flash(f'Счет "{new_account.name}" успешно создан.', 'success')
-            return redirect(url_for('main.ui_accounts'))
+            return redirect(url_for('main.ui_banking_overview'))
         except (InvalidOperation, ValueError) as e:
             flash(f'Ошибка в данных: {e}', 'danger')
-            return render_template('add_edit_account.html', form_action_url=url_for('main.add_account'), account=request.form, title="Добавить новый счет", banks=banks, all_accounts=all_accounts)
+            current_data = request.form.to_dict()
+            return render_template('add_edit_account.html', form_action_url=url_for('main.add_account'), account=None, title="Добавить новый счет", banks=banks, all_accounts=all_accounts, current_data=current_data)
     # GET request
     return render_template('add_edit_account.html', form_action_url=url_for('main.add_account'), account=None, title="Добавить новый счет", banks=banks, all_accounts=all_accounts)
 
@@ -1360,13 +1363,12 @@ def ui_edit_account_form(account_id):
             _populate_account_from_form(account, request.form)
             db.session.commit()
             flash(f'Счет "{account.name}" успешно обновлен.', 'success')
-            return redirect(url_for('main.ui_accounts'))
+            return redirect(url_for('main.ui_banking_overview'))
         except (InvalidOperation, ValueError) as e:
             flash(f'Ошибка в данных: {e}', 'danger')
             # Передаем измененные данные формы обратно в шаблон
-            form_data = request.form.to_dict()
-            form_data['id'] = account_id # Сохраняем id для action в форме
-            return render_template('add_edit_account.html', form_action_url=url_for('main.ui_edit_account_form', account_id=account_id), account=form_data, title="Редактировать счет", banks=banks, all_accounts=all_accounts)
+            current_data = request.form.to_dict()
+            return render_template('add_edit_account.html', form_action_url=url_for('main.ui_edit_account_form', account_id=account_id), account=account, title="Редактировать счет", banks=banks, all_accounts=all_accounts, current_data=current_data)
     return render_template('add_edit_account.html', form_action_url=url_for('main.ui_edit_account_form', account_id=account_id), account=account, title="Редактировать счет", banks=banks, all_accounts=all_accounts)
 
 @main_bp.route('/accounts/<int:account_id>/delete', methods=['POST'])
@@ -1375,18 +1377,14 @@ def ui_delete_account(account_id):
     # Проверка, есть ли связанные транзакции
     if BankingTransaction.query.filter((BankingTransaction.account_id == account_id) | (BankingTransaction.to_account_id == account_id)).first():
         flash(f'Нельзя удалить счет "{account.name}", так как с ним связаны транзакции. Сначала удалите или перенесите транзакции.', 'danger')
-        return redirect(url_for('main.ui_accounts'))
+        return redirect(url_for('main.ui_banking_overview'))
     
     db.session.delete(account)
     db.session.commit()
     flash(f'Счет "{account.name}" успешно удален.', 'success')
-    return redirect(url_for('main.ui_accounts'))
+    return redirect(url_for('main.ui_banking_overview'))
 
-@main_bp.route('/banks')
-def ui_banks():
-    """Отображает страницу со списком всех банков."""
-    banks = Bank.query.order_by(Bank.name).all()
-    return render_template('banks.html', banks=banks)
+
 
 @main_bp.route('/banks/add', methods=['GET', 'POST'])
 def ui_add_bank():
@@ -1401,7 +1399,7 @@ def ui_add_bank():
             db.session.add(Bank(name=name))
             db.session.commit()
             flash(f'Банк "{name}" успешно добавлен.', 'success')
-            return redirect(url_for('main.ui_banks'))
+            return redirect(url_for('main.ui_banking_overview'))
     return render_template('add_edit_bank.html', title="Добавить банк", bank=None)
 
 @main_bp.route('/banks/<int:bank_id>/edit', methods=['GET', 'POST'])
@@ -1418,7 +1416,7 @@ def ui_edit_bank(bank_id):
             bank.name = name
             db.session.commit()
             flash('Название банка успешно обновлено.', 'success')
-            return redirect(url_for('main.ui_banks'))
+            return redirect(url_for('main.ui_banking_overview'))
     return render_template('add_edit_bank.html', title="Редактировать банк", bank=bank)
 
 @main_bp.route('/banks/<int:bank_id>/delete', methods=['POST'])
@@ -1427,12 +1425,12 @@ def ui_delete_bank(bank_id):
     bank = Bank.query.get_or_404(bank_id)
     if bank.accounts.first():
         flash(f'Нельзя удалить банк "{bank.name}", так как с ним связаны счета. Сначала измените или удалите связанные счета.', 'danger')
-        return redirect(url_for('main.ui_banks'))
+        return redirect(url_for('main.ui_banking_overview'))
     
     db.session.delete(bank)
     db.session.commit()
     flash(f'Банк "{bank.name}" успешно удален.', 'success')
-    return redirect(url_for('main.ui_banks'))
+    return redirect(url_for('main.ui_banking_overview'))
 
 @main_bp.route('/categories')
 def ui_categories():
@@ -1594,6 +1592,17 @@ def _create_debt_from_recurring_payment(payment: RecurringPayment):
         new_debt = Debt(debt_type='i_owe', counterparty=payment.description, initial_amount=payment.amount, currency=payment.currency, due_date=due_date)
         db.session.add(new_debt)
         current_app.logger.info(f"--- [Recurring Payments] Создан новый долг для {payment.description} на сумму {payment.amount} {payment.currency} с датой погашения {due_date}.")
+
+        # Обновляем дату следующего платежа
+        interval = payment.interval_value
+        if payment.frequency == 'daily':
+            payment.next_due_date += timedelta(days=interval)
+        elif payment.frequency == 'monthly':
+            payment.next_due_date += relativedelta(months=interval)
+        elif payment.frequency == 'yearly':
+            payment.next_due_date += relativedelta(years=interval)
+        
+        db.session.add(payment)
     else:
         current_app.logger.info(f"--- [Recurring Payments] Долг для {payment.description} на сумму {payment.amount} {payment.currency} с датой погашения {due_date} уже существует.")
 
@@ -1690,9 +1699,78 @@ def repay_debt(debt_id):
 
     debt = Debt.query.get_or_404(debt_id)
     remaining_amount = debt.initial_amount - debt.repaid_amount
+    
+    # Находим встречные долги для взаимозачета
+    opposite_type = 'owed_to_me' if debt.debt_type == 'i_owe' else 'i_owe'
+    
+    # Долги от того же контрагента
+    same_counterparty_debts = Debt.query.filter(
+        Debt.debt_type == opposite_type,
+        Debt.currency == debt.currency,
+        Debt.status == 'active',
+        Debt.counterparty == debt.counterparty
+    ).order_by(Debt.created_at.asc()).all()
+
+    # Долги от других контрагентов (для опции "через другого контрагента")
+    other_counterparty_debts = Debt.query.filter(
+        Debt.debt_type == opposite_type,
+        Debt.currency == debt.currency,
+        Debt.status == 'active',
+        Debt.counterparty != debt.counterparty
+    ).order_by(Debt.counterparty, Debt.created_at.asc()).all()
+
+    all_netting_debts = same_counterparty_debts + other_counterparty_debts
+
     if request.method == 'POST':
+        # ... (существующая логика POST)
+        
+        # Проверяем, был ли выбран взаимозачет
+        netting_debt_id = request.form.get('netting_debt_id')
+        if netting_debt_id:
+            # Логика взаимозачета
+            try:
+                netting_debt = Debt.query.get(int(netting_debt_id))
+                if not netting_debt:
+                    flash('Встречный долг не найден.', 'danger')
+                    return redirect(url_for('main.repay_debt', debt_id=debt.id))
+
+                netting_remaining_amount = netting_debt.initial_amount - netting_debt.repaid_amount
+                
+                # Сумма взаимозачета - минимум из двух остатков
+                netting_amount = min(remaining_amount, netting_remaining_amount)
+
+                if netting_amount <= 0:
+                    flash('Недостаточно остатка для взаимозачета.', 'danger')
+                    return redirect(url_for('main.repay_debt', debt_id=debt.id))
+
+                # 1. Обновляем текущий долг (который погашаем)
+                debt.repaid_amount += netting_amount
+                if debt.repaid_amount >= debt.initial_amount:
+                    debt.status = 'repaid'
+                    flash(f'Долг перед "{debt.counterparty}" полностью погашен взаимозачетом!', 'success')
+                else:
+                    flash(f'Частичное погашение долга перед "{debt.counterparty}" на сумму {netting_amount:.2f} {debt.currency} успешно зарегистрировано взаимозачетом.', 'success')
+
+                # 2. Обновляем встречный долг
+                netting_debt.repaid_amount += netting_amount
+                if netting_debt.repaid_amount >= netting_debt.initial_amount:
+                    netting_debt.status = 'repaid'
+                    flash(f'Встречный долг с контрагентом "{netting_debt.counterparty}" также полностью погашен.', 'success')
+                
+                # 3. Commit changes
+                db.session.commit()
+                
+                return redirect(url_for('main.ui_debts'))
+
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.error(f"Error during debt netting: {e}")
+                flash('Произошла ошибка при взаимозачете долга.', 'danger')
+                return redirect(url_for('main.repay_debt', debt_id=debt.id))
+
+        # --- СУЩЕСТВУЮЩАЯ ЛОГИКА ПОГАШЕНИЯ СЧЕТОМ ---
         try:
-            amount = Decimal(request.form['amount'])
+            amount = Decimal(request.form['amount'].replace(',', '.'))
             account_id = int(request.form['account_id'])
             date_str = request.form['date']
             description = request.form.get('description', f'Погашение долга: {debt.counterparty}')
@@ -1711,10 +1789,14 @@ def repay_debt(debt_id):
             if debt.debt_type == 'i_owe':
                 # I owe -> I pay -> Expense, Account balance decreases
                 tx_type = 'expense'
+                category = _get_or_create_category(debt.counterparty, type='expense')
+                category_id = category.id
                 account.balance -= amount
             else: # owed_to_me
                 # Owed to me -> I receive -> Income, Account balance increases
                 tx_type = 'income'
+                category = _get_or_create_category(debt.counterparty, type='income')
+                category_id = category.id
                 account.balance += amount
 
             # 1. Create BankingTransaction
@@ -1724,7 +1806,8 @@ def repay_debt(debt_id):
                 date=datetime.strptime(date_str, '%Y-%m-%d').date(),
                 description=description,
                 account_id=account.id,
-                debt_id=debt.id
+                debt_id=debt.id,
+                category_id=category_id
             )
             
             # 2. Update Debt
@@ -1749,21 +1832,16 @@ def repay_debt(debt_id):
             current_app.logger.error(f"Error during debt repayment: {e}")
             flash('Произошла ошибка при регистрации погашения долга.', 'danger')
             return redirect(url_for('main.repay_debt', debt_id=debt.id))
+            
     accounts = Account.query.filter_by(is_active=True, currency=debt.currency).order_by(Account.name).all()
     if not accounts and debt.status == 'active':
         flash(f'Не найден ни один активный счет в валюте {debt.currency} для выполнения операции.', 'warning')
     
-    return render_template('repay_debt.html', debt=debt, remaining_amount=remaining_amount, accounts=accounts, now=datetime.now(timezone.utc))
+    return render_template('repay_debt.html', debt=debt, remaining_amount=remaining_amount, accounts=accounts, all_netting_debts=all_netting_debts, now=datetime.now(timezone.utc))
 
-@main_bp.route('/debts/netting', methods=['POST'])
-def ui_net_debt():
-    counterparty = request.form.get('counterparty')
-    currency = request.form.get('currency')
+@main_bp.route('/debts/netting/<counterparty>/<currency>', methods=['GET'])
+def ui_net_debt(counterparty, currency):
     
-    if not counterparty or not currency:
-        flash('Необходимо указать контрагента и валюту.', 'danger')
-        return redirect(url_for('main.ui_debts'))
-
     try:
         # 1. Find all active debts for netting
         i_owe_debts = Debt.query.filter_by(
@@ -1874,7 +1952,8 @@ def ui_analytics_overview():
         func.sum(BankingTransaction.amount)
     ).join(Category, BankingTransaction.category_id == Category.id).filter(
         BankingTransaction.date >= one_month_ago,
-        BankingTransaction.transaction_type == 'expense'
+        BankingTransaction.transaction_type == 'expense',
+        ~BankingTransaction.items.any()
     ).group_by(Category.name).order_by(func.sum(BankingTransaction.amount).desc()).limit(10).all()  # noqa
 
     total_spending = sum(item[1] for item in category_spending)
@@ -1909,6 +1988,32 @@ def ui_analytics_overview():
     else:
         purchase_category_percentages = [0.0] * len(purchase_category_data)
 
+
+    # --- 4. Объединение общих расходов по категориям (BankingTransaction + TransactionItem) ---
+    combined_spending_map = defaultdict(Decimal)
+
+    # 1. Добавить расходы из BankingTransaction (без детализации)
+    for category_name, amount in category_spending:
+        combined_spending_map[category_name] += amount
+
+    # 2. Добавить расходы из TransactionItem (детализация)
+    for category_name, amount in purchase_category_spending:
+        combined_spending_map[category_name] += amount
+
+    # Сортировка и подготовка данных для графика
+    combined_spending_list = sorted(combined_spending_map.items(), key=lambda item: item[1], reverse=True)
+    
+    # Ограничение до 10 лучших категорий
+    combined_spending_list = combined_spending_list[:10]
+
+    combined_category_labels = [item[0] for item in combined_spending_list]
+    combined_category_data = [float(item[1]) for item in combined_spending_list]
+    
+    combined_total_spending = sum(combined_category_data)
+    if combined_total_spending:
+        combined_category_percentages = [round((data / combined_total_spending) * 100, 2) for data in combined_category_data]
+    else:
+        combined_category_percentages = [0.0] * len(combined_category_data)
 
 
     # Получить детализированные данные о расходах по подкатегориям
@@ -2054,6 +2159,10 @@ def ui_analytics_overview():
         category_labels=json.dumps(category_labels), 
         category_data=json.dumps(category_data),
         category_percentages=json.dumps(category_percentages),
+        # Combined Expense by Category
+        combined_category_labels=json.dumps(combined_category_labels),
+        combined_category_data=json.dumps(combined_category_data),
+        combined_category_percentages=json.dumps(combined_category_percentages),
         # Income vs Expense Pie Chart
         income_expense_labels=json.dumps(income_expense_labels), 
         income_expense_data=json.dumps(income_expense_data),
@@ -2091,13 +2200,14 @@ def add_recurring_payment():  # noqa
     try:
         description = request.form['description']
         frequency = request.form['frequency']
+        interval_value = int(request.form.get('interval_value', 1))
         amount = Decimal(request.form['amount'])
         currency = request.form['currency']
         next_due_date_str = request.form.get('next_due_date')
 
         next_due_date = datetime.strptime(next_due_date_str, '%Y-%m-%d').date() if next_due_date_str else date.today()
 
-        new_recurring_payment = RecurringPayment(description=description, frequency=frequency, amount=amount, currency=currency, next_due_date=next_due_date, user_id=1) # noqa # Возможно, вам захочется связать платежи с пользователями
+        new_recurring_payment = RecurringPayment(description=description, frequency=frequency, interval_value=interval_value, amount=amount, currency=currency, next_due_date=next_due_date, user_id=1) # noqa # Возможно, вам захочется связать платежи с пользователями
 
         db.session.add(new_recurring_payment)
         db.session.commit()
@@ -2114,6 +2224,7 @@ def edit_recurring_payment(payment_id): # noqa
 
     payment.description = request.form.get('description')
     payment.frequency = request.form.get('frequency')
+    payment.interval_value = int(request.form.get('interval_value', 1))
     payment.amount = request.form.get('amount')
     payment.currency = request.form.get('currency')
     payment.next_due_date = datetime.strptime(request.form.get('next_due_date'), '%Y-%m-%d').date()

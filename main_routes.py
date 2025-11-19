@@ -1173,15 +1173,16 @@ def ui_add_transaction_form():
                     amount=amount,
                     date=datetime.strptime(request.form.get('date'), '%Y-%m-%dT%H:%M'),
                     description=request.form.get('description'),
-                    account_id=int(request.form.get('account_id')),
-                    category_id=int(request.form.get('category_id')) if request.form.get('category_id') else None
+                    account_id=from_account_id,
+                    to_account_id=to_account_id,
+                    counterparty=request.form.get('counterparty') or None
                 )
                 db.session.add(new_tx)
             
             elif tx_type == 'income':
                 amount = Decimal(request.form.get('amount', '0'))
                 if amount <= 0: raise ValueError("Сумма должна быть положительной.")
-                
+
                 if account.account_type == 'credit':
                     account.balance -= amount
                 else:
@@ -1193,7 +1194,8 @@ def ui_add_transaction_form():
                     date=datetime.strptime(request.form.get('date'), '%Y-%m-%dT%H:%M'),
                     description=request.form.get('description'),
                     account_id=int(request.form.get('account_id')),
-                    category_id=int(request.form.get('category_id')) if request.form.get('category_id') else None
+                    category_id=int(request.form.get('category_id')) if request.form.get('category_id') else None,
+                    counterparty=request.form.get('counterparty') or None
                 )
                 db.session.add(new_tx)
 
@@ -1225,8 +1227,9 @@ def ui_add_transaction_form():
                     amount=amount,
                     date=datetime.strptime(request.form.get('date'), '%Y-%m-%dT%H:%M'),
                     description=request.form.get('description'),
-                    account_id=from_account_id,
-                    to_account_id=to_account_id
+                    account_id=int(request.form.get('account_id')),
+                    category_id=int(request.form.get('category_id')) if request.form.get('category_id') else None,
+                    counterparty=request.form.get('counterparty') or None
                 )
                 db.session.add(new_tx)
 
@@ -1254,7 +1257,8 @@ def ui_add_transaction_form():
                     date=datetime.strptime(request.form.get('date'), '%Y-%m-%dT%H:%M'),
                     description=request.form.get('description'),
                     account_id=from_account_id,
-                    to_account_id=to_account_id
+                    to_account_id=to_account_id,
+                    counterparty=request.form.get('counterparty') or None
                 )
                 db.session.add(new_tx)
             elif tx_type in ['purchase', 'manual_purchase']:
@@ -1277,7 +1281,8 @@ def ui_add_transaction_form():
                     date=datetime.strptime(request.form.get('date'), '%Y-%m-%dT%H:%M'),
                     description=request.form.get('description'),
                     merchant=request.form.get('merchant'),
-                    account_id=int(request.form.get('account_id'))
+                    account_id=int(request.form.get('account_id')),
+                    counterparty=request.form.get('counterparty') or None
                 )
                 db.session.add(purchase_tx)
                 db.session.flush()
@@ -1312,12 +1317,22 @@ def ui_add_transaction_form():
     expense_categories = Category.query.filter_by(type='expense', parent_id=None).order_by(Category.name).options(joinedload(Category.subcategories)).all()
     income_categories = Category.query.filter_by(type='income', parent_id=None).order_by(Category.name).options(joinedload(Category.subcategories)).all()
     categories = Category.query.order_by(Category.name).all()
-    
-    return render_template(  
-        'add_transaction.html', 
-        accounts=accounts, 
+
+    # Собираем список контрагентов из долгов и транзакций
+    debt_counterparties = db.session.query(Debt.counterparty).filter(Debt.counterparty.isnot(None)).distinct().all()
+    tx_counterparties = db.session.query(BankingTransaction.counterparty).filter(BankingTransaction.counterparty.isnot(None)).distinct().all()
+    tx_merchants = db.session.query(BankingTransaction.merchant).filter(BankingTransaction.merchant.isnot(None)).distinct().all()
+    counterparties = set()
+    for cp in debt_counterparties + tx_counterparties + tx_merchants:
+        counterparties.add(cp[0])
+    counterparties = sorted(list(counterparties))
+
+    return render_template(
+        'add_transaction.html',
+        accounts=accounts,
         expense_categories=expense_categories,
         income_categories=income_categories,
+        counterparties=counterparties,
         now=datetime.now(timezone.utc)
     )    
 

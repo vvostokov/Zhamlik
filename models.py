@@ -214,6 +214,7 @@ class BankingTransaction(db.Model):
     date = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     description = db.Column(db.Text)
     merchant = db.Column(db.String(255), nullable=True)
+    counterparty = db.Column(db.String(255), nullable=True)
     account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
     to_account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
@@ -319,7 +320,8 @@ class RecurringPayment(db.Model):
     """Модель для хранения информации о регулярных платежах."""
     id = db.Column(db.Integer, primary_key=True)
     description = db.Column(db.String(255), nullable=False)
-    frequency = db.Column(db.String(50), nullable=False)  # 'monthly', 'yearly', etc.
+    frequency = db.Column(db.String(50), nullable=False)  # 'monthly', 'yearly', 'daily', etc.
+    interval_value = db.Column(db.Integer, default=1, nullable=False)
     amount = db.Column(db.Numeric(20, 2), nullable=False)
     currency = db.Column(db.String(16), nullable=False)
     next_due_date = db.Column(db.Date, nullable=False)

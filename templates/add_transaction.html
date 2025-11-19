@@ -103,6 +103,17 @@
             <button type="button" class="btn btn-success mt-2" id="add-item-btn">Добавить товар</button>
         </div>
 
+        <!-- Поле для контрагента -->
+        <div class="form-group mb-3">
+            <label for="counterparty">Контрагент</label>
+            <select class="form-select" id="counterparty" name="counterparty">
+                <option value="">-- Не указан --</option>
+                {% for cp in counterparties %}
+                <option value="{{ cp }}">{{ cp }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
         <!-- Общее поле для описания -->
         <div class="form-group mb-3 mt-3">
             <label for="description">Описание / Комментарий</label>

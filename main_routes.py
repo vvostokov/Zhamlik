@@ -890,10 +890,14 @@ def ui_crypto_assets():
         Transaction.asset2_ticker == 'USDT'
     ).group_by(Transaction.asset1_ticker).all()
 
-    avg_buy_prices = {
-        ticker: total_cost / total_quantity if total_quantity > 0 else Decimal(0)
-        for ticker, total_cost, total_quantity in buy_transactions
-    }
+    avg_buy_prices = {}
+    for ticker, total_cost, total_quantity in buy_transactions:
+        cost = total_cost if total_cost is not None else Decimal(0)
+        qty = total_quantity if total_quantity is not None else Decimal(0)
+        if qty > 0:
+            avg_buy_prices[ticker] = cost / qty
+        else:
+            avg_buy_prices[ticker] = Decimal(0)
 
     for ticker, data in aggregated_assets.items():
         data.update(changes_by_ticker[ticker])

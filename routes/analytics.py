@@ -150,6 +150,9 @@ def ui_analytics_overview():
     income_total = next((item[1] for item in cash_flow_data if item[0] == 'income'), Decimal(0))
     expense_total = next((item[1] for item in cash_flow_data if item[0] == 'expense'), Decimal(0))
     cash_flow_values = [float(income_total), float(expense_total)]
+    
+    # Add net_cash_flow calculation
+    net_cash_flow = income_total - expense_total
 
     return render_template(
         'analytics_overview.html',
@@ -159,6 +162,9 @@ def ui_analytics_overview():
         category_data=category_data,
         category_percentages=category_percentages,
         cash_flow_values=cash_flow_values,
+        net_cash_flow=net_cash_flow, # Pass this variable to template
+        total_income=income_total,   # Also pass total income
+        total_expense=expense_total, # And total expense
         purchase_category_labels=purchase_category_labels,
         purchase_category_data=purchase_category_data,
         purchase_category_percentages=purchase_category_percentages,

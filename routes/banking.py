@@ -496,6 +496,24 @@ def ui_edit_transaction_form(tx_id):
 
     return render_template('edit_transaction.html', transaction=transaction, accounts=accounts, categories=categories, expense_categories=expense_categories, counterparties=counterparties)
 
+@main_bp.route('/cashback_rules')
+@login_required
+def ui_cashback_rules():
+    # Placeholder for cashback rules page
+    return render_template('cashback_rules.html', rules=[])
+
+@main_bp.route('/cashback_rules/add', methods=['GET', 'POST'])
+@login_required
+def ui_add_cashback_rule_form():
+    # Placeholder
+    return render_template('add_cashback_rule.html', rule={})
+
+@main_bp.route('/cashback_rules/<int:rule_id>/edit', methods=['GET', 'POST'])
+@login_required
+def ui_edit_cashback_rule_form(rule_id):
+    # Placeholder
+    return render_template('edit_cashback_rule.html', rule={})
+
 @main_bp.route('/categories')
 @login_required
 def ui_categories():

@@ -74,6 +74,9 @@
             <a class="nav-link" id="income-tab" data-toggle="tab" href="#income" role="tab" aria-controls="income" aria-selected="false">Доходы</a>
         </li>
         <li class="nav-item">
+            <a class="nav-link" id="counterparties-tab" data-toggle="tab" href="#counterparties" role="tab" aria-controls="counterparties" aria-selected="false">Контрагенты</a>
+        </li>
+        <li class="nav-item">
             <a class="nav-link" id="external-tab" data-toggle="tab" href="#external" role="tab" aria-controls="external" aria-selected="false">Другие счета</a>
         </li>
     </ul>
@@ -160,8 +163,23 @@
         </div>
     </div>
 
-    <!-- TAB 4: Другие счета -->
-    <div class="tab-pane fade" id="external" role="tabpanel" aria-labelledby="external-tab">
+        <!-- TAB 4: Counterparties -->
+        <div class="tab-pane fade" id="counterparties" role="tabpanel" aria-labelledby="counterparties-tab">
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Топ-10 Контрагентов по балансу долга (Все валюты)</div>
+                        <div class="card-body">
+                            <canvas id="counterpartyBalanceChart"></canvas>
+                            <small class="text-muted">Положительные значения - вам должны, Отрицательные - вы должны.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 5: Другие счета -->
+        <div class="tab-pane fade" id="external" role="tabpanel" aria-labelledby="external-tab">
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
@@ -235,6 +253,10 @@
     const topMerchantData = JSON.parse('{{ top_merchant_data | safe }}');
     const topIncomeLabels = JSON.parse('{{ top_income_labels | safe }}');
     const topIncomeData = JSON.parse('{{ top_income_data | safe }}');
+
+    // Counterparty Data
+    const counterpartyLabels = JSON.parse('{{ counterparty_labels | safe }}');
+    const counterpartyData = JSON.parse('{{ counterparty_data | safe }}');
 
     const purchaseCategoryLabels = JSON.parse('{{ purchase_category_labels | safe }}');
     const purchaseCategoryData = JSON.parse('{{ purchase_category_data | safe }}');
@@ -346,12 +368,28 @@
             } 
         });
 
+        // 7. Топ-10 Контрагентов (Bar horizontal)
+        new Chart(document.getElementById('counterpartyBalanceChart'), { 
+            type: 'bar', 
+            data: { 
+                labels: counterpartyLabels, 
+                datasets: [{ 
+                    label: 'Баланс (RUB эквив.)', 
+                    data: counterpartyData,
+                    backgroundColor: counterpartyData.map(v => v >= 0 ? 'rgba(75, 192, 192, 0.6)' : 'rgba(255, 99, 132, 0.6)')
+                }] 
+            },
+            options: {
+                indexAxis: 'y',
+            }
+        });
+
     } catch (error) {
         console.error("Error creating chart:", error);
     }
 
     try {
-        // 7. Расходы по покупкам (Bar)
+        // 8. Расходы по покупкам (Bar)
         new Chart(document.getElementById('purchaseCategorySpendingChart'), { type: 'bar', data: { labels: purchaseCategoryLabels, datasets: [{ label: 'Сумма', data: purchaseCategoryData, backgroundColor: 'rgba(153, 102, 255, 0.5)' }] } });
     } catch (error) {
         console.error("Error creating chart:", error);

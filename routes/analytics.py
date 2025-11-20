@@ -1,7 +1,8 @@
 from datetime import datetime, date, timedelta
+import json
 from decimal import Decimal
 from flask import render_template, request, redirect, url_for, flash, current_app
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, case, extract
 from sqlalchemy.orm import joinedload
 from collections import defaultdict
 
@@ -178,29 +179,148 @@ def ui_analytics_overview():
     # Add net_cash_flow calculation
     net_cash_flow = income_total - expense_total
 
+    # --- 5. Additional Charts Data Calculation ---
+    
+    # 5.1 Net Flow Over Time (Dynamic grouping)
+    # Determine grouping interval
+    delta_days = (end_date - start_date).days
+    if delta_days > 60:
+        date_grouping = func.strftime('%Y-%m', BankingTransaction.date)
+        date_format = '%Y-%m'
+    else:
+        date_grouping = func.strftime('%Y-%m-%d', BankingTransaction.date)
+        date_format = '%Y-%m-%d'
+
+    flow_query = db.session.query(
+        date_grouping.label('period'),
+        BankingTransaction.transaction_type,
+        func.sum(BankingTransaction.amount)
+    ).join(Account, BankingTransaction.account_id == Account.id).filter(
+        Account.user_id == current_user.id,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
+        BankingTransaction.transaction_type.in_(['income', 'expense'])
+    ).group_by('period', BankingTransaction.transaction_type).order_by('period').all()
+
+    flow_periods = sorted(list(set(item[0] for item in flow_query)))
+    flow_income_map = {item[0]: float(item[2]) for item in flow_query if item[1] == 'income'}
+    flow_expense_map = {item[0]: float(item[2]) for item in flow_query if item[1] == 'expense'}
+    
+    flow_over_time_labels = flow_periods
+    flow_over_time_income = [flow_income_map.get(p, 0) for p in flow_periods]
+    flow_over_time_expense = [flow_expense_map.get(p, 0) for p in flow_periods]
+    flow_over_time_net = [inc - exp for inc, exp in zip(flow_over_time_income, flow_over_time_expense)]
+
+    # 5.2 Top Expense Accounts
+    top_expense_accounts = db.session.query(
+        Account.name,
+        func.sum(BankingTransaction.amount)
+    ).join(Account, BankingTransaction.account_id == Account.id).filter(
+        Account.user_id == current_user.id,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
+        BankingTransaction.transaction_type == 'expense'
+    ).group_by(Account.name).order_by(func.sum(BankingTransaction.amount).desc()).limit(5).all()
+
+    top_expense_account_labels = [item[0] for item in top_expense_accounts]
+    top_expense_account_data = [float(item[1]) for item in top_expense_accounts]
+
+    # 5.3 Top Merchants
+    top_merchants = db.session.query(
+        BankingTransaction.merchant,
+        func.sum(BankingTransaction.amount)
+    ).join(Account, BankingTransaction.account_id == Account.id).filter(
+        Account.user_id == current_user.id,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
+        BankingTransaction.transaction_type == 'expense',
+        BankingTransaction.merchant.isnot(None),
+        BankingTransaction.merchant != ''
+    ).group_by(BankingTransaction.merchant).order_by(func.sum(BankingTransaction.amount).desc()).limit(5).all()
+
+    top_merchant_labels = [item[0] for item in top_merchants]
+    top_merchant_data = [float(item[1]) for item in top_merchants]
+
+    # 5.5 Counterparty Data
+    # Query debts and calculate balance
+    from models import Debt
+    
+    i_owe_list = Debt.query.filter_by(debt_type='i_owe', status='active', user_id=current_user.id).all()
+    owed_to_me_list = Debt.query.filter_by(debt_type='owed_to_me', status='active', user_id=current_user.id).all()
+
+    # Group by counterparty
+    counterparty_balance = defaultdict(float)
+    
+    # Only considering RUB for simplicity in analytics or converting everything to RUB if we had rates
+    # For now, let's just sum amounts assuming RUB or mixed (as is common in simple overview)
+    # Or better, display breakdown by counterparty in RUB equivalent if rates available
+    
+    for debt in i_owe_list:
+        # Assuming rub or converting. Let's just use raw amounts if same currency, or skip conversion logic for now to keep simple
+        # Ideally should convert.
+        rate = currency_rates_to_rub.get(debt.currency, 1.0)
+        val = float(debt.initial_amount - debt.repaid_amount) * float(rate)
+        counterparty_balance[debt.counterparty] -= val # Negative for 'I owe'
+
+    for debt in owed_to_me_list:
+        rate = currency_rates_to_rub.get(debt.currency, 1.0)
+        val = float(debt.initial_amount - debt.repaid_amount) * float(rate)
+        counterparty_balance[debt.counterparty] += val # Positive for 'Owed to me'
+
+    # Sort by absolute balance value
+    sorted_counterparties = sorted(counterparty_balance.items(), key=lambda item: abs(item[1]), reverse=True)[:10]
+    
+    counterparty_labels = [item[0] for item in sorted_counterparties]
+    counterparty_data = [item[1] for item in sorted_counterparties]
+
     return render_template(
         'analytics_overview.html',
-        start_date=start_date.strftime('%Y-%m-%d'), # Pass strings for date inputs
+        start_date=start_date.strftime('%Y-%m-%d'),
         end_date=end_date.strftime('%Y-%m-%d'),
         total_balance_rub=total_balance_rub,
         recent_transactions=recent_transactions,
-        category_labels=category_labels,
-        category_data=category_data,
-        category_percentages=category_percentages,
-        cash_flow_values=cash_flow_values,
-        net_cash_flow=net_cash_flow, # Pass this variable to template
-        total_income=income_total,   # Also pass total income
-        total_expense=expense_total, # And total expense
-        purchase_category_labels=purchase_category_labels,
-        purchase_category_data=purchase_category_data,
-        purchase_category_percentages=purchase_category_percentages,
-        combined_category_labels=combined_category_labels,
-        combined_category_data=combined_category_data,
-        combined_category_percentages=combined_category_percentages,
-        subcategory_labels=subcategory_labels,
-        subcategory_data=subcategory_data,
-        products_labels=products_labels,
-        products_data=products_data
+        category_labels=json.dumps(category_labels),
+        category_data=json.dumps(category_data),
+        category_percentages=json.dumps(category_percentages),
+        
+        income_expense_labels=json.dumps(['Доходы', 'Расходы']),
+        income_expense_data=json.dumps(cash_flow_values),
+        
+        net_cash_flow=net_cash_flow,
+        total_income=income_total,
+        total_expense=expense_total,
+        
+        purchase_category_labels=json.dumps(purchase_category_labels),
+        purchase_category_data=json.dumps(purchase_category_data),
+        purchase_category_percentages=json.dumps(purchase_category_percentages),
+        
+        combined_category_labels=json.dumps(combined_category_labels),
+        combined_category_data=json.dumps(combined_category_data),
+        combined_category_percentages=json.dumps(combined_category_percentages),
+        
+        subcategory_labels=json.dumps(subcategory_labels),
+        subcategory_data=json.dumps(subcategory_data),
+        products_labels=json.dumps(products_labels),
+        products_data=json.dumps(products_data),
+
+        # New Charts Data
+        flow_over_time_labels=json.dumps(flow_over_time_labels),
+        flow_over_time_income=json.dumps(flow_over_time_income),
+        flow_over_time_expense=json.dumps(flow_over_time_expense),
+        flow_over_time_net=json.dumps(flow_over_time_net),
+        
+        top_expense_account_labels=json.dumps(top_expense_account_labels),
+        top_expense_account_data=json.dumps(top_expense_account_data),
+        
+        top_merchant_labels=json.dumps(top_merchant_labels),
+        top_merchant_data=json.dumps(top_merchant_data),
+        
+        top_income_labels=json.dumps(top_income_labels),
+        top_income_data=json.dumps(top_income_data),
+
+        # Counterparty Data
+        counterparty_labels=json.dumps(counterparty_labels),
+        counterparty_data=json.dumps(counterparty_data)
     )
 
 @main_bp.route('/analytics/refresh-securities-history', methods=['POST'])

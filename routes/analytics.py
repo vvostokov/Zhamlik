@@ -16,11 +16,25 @@ from flask_login import login_required, current_user
 @login_required
 def ui_analytics_overview():    
     start_date_str = request.args.get('start_date')
-    # Provide default values
-    start_date = datetime.now() - timedelta(days=30)
-    end_date = datetime.now()
-
     end_date_str = request.args.get('end_date')
+    
+    # Default to last 30 days
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+
+    if start_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        except ValueError:
+            pass # Keep default
+            
+    if end_date_str:
+        try:
+            # Add 23:59:59 to end date to include the whole day
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+        except ValueError:
+            pass # Keep default
+
     # --- 1. Рассчитать общий баланс по всем активным банковским счетам ---
     currency_rates_to_rub = _get_currency_rates()
 
@@ -47,18 +61,25 @@ def ui_analytics_overview():
         else:
             total_balance_rub += value_in_rub  # Добавить активы
 
-    one_month_ago = datetime.now() - timedelta(days=30)
-    # --- 2. Получить банковские транзакции за последние 3 месяца ---
-    three_months_ago = datetime.now() - timedelta(days=90)
-    recent_transactions = BankingTransaction.query.join(Account, BankingTransaction.account_id == Account.id).filter(Account.user_id == current_user.id, BankingTransaction.date >= three_months_ago).order_by(BankingTransaction.date.desc()).limit(100).all()
+    # Use dynamic start_date instead of hardcoded one_month_ago
+    # one_month_ago = datetime.now() - timedelta(days=30) # Removed
+    
+    # --- 2. Получить банковские транзакции за выбранный период ---
+    # three_months_ago = datetime.now() - timedelta(days=90) # Removed
+    recent_transactions = BankingTransaction.query.join(Account, BankingTransaction.account_id == Account.id).filter(
+        Account.user_id == current_user.id, 
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date
+    ).order_by(BankingTransaction.date.desc()).limit(100).all()
 
-    # --- 3. Рассчитать расходы по категориям за последний месяц ---
+    # --- 3. Рассчитать расходы по категориям за выбранный период ---
     category_spending = db.session.query(
         Category.name,
         func.sum(BankingTransaction.amount)
     ).join(Category, BankingTransaction.category_id == Category.id).join(Account, BankingTransaction.account_id == Account.id).filter(
         Account.user_id == current_user.id,
-        BankingTransaction.date >= one_month_ago,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
         BankingTransaction.transaction_type == 'expense'
     ).group_by(Category.name).order_by(func.sum(BankingTransaction.amount).desc()).limit(10).all()
 
@@ -78,7 +99,8 @@ def ui_analytics_overview():
         func.sum(TransactionItem.total)
     ).join(Category, TransactionItem.category_id == Category.id).join(BankingTransaction, TransactionItem.transaction_id == BankingTransaction.id).join(Account, BankingTransaction.account_id == Account.id).filter(
         Account.user_id == current_user.id,
-        BankingTransaction.date >= one_month_ago,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
         BankingTransaction.transaction_type == 'expense'
     ).group_by(Category.name).order_by(func.sum(TransactionItem.total).desc()).limit(10).all()
 
@@ -125,7 +147,8 @@ def ui_analytics_overview():
             func.sum(BankingTransaction.amount)
         ).join(Category, BankingTransaction.category_id == Category.id).join(Account, BankingTransaction.account_id == Account.id).filter(
         Account.user_id == current_user.id,
-        BankingTransaction.date >= one_month_ago,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
         BankingTransaction.transaction_type == 'expense',
         Category.parent_id.isnot(None)
     ).group_by(Category.name).order_by(func.sum(BankingTransaction.amount).desc()).limit(10).all()
@@ -137,13 +160,14 @@ def ui_analytics_overview():
     products_data = [10, 20, 15, 25, 30]
     products_labels = ["Product A", "Product B", "Product C", "Product D", "Product E"]
 
-    # --- 4. Расчет общего денежного потока (Income vs Expense) за последний месяц ---
+    # --- 4. Расчет общего денежного потока (Income vs Expense) за выбранный период ---
     cash_flow_data = db.session.query(
         BankingTransaction.transaction_type,
         func.sum(BankingTransaction.amount)
     ).join(Account, BankingTransaction.account_id == Account.id).filter(
         Account.user_id == current_user.id,
-        BankingTransaction.date >= one_month_ago, 
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date, 
         BankingTransaction.transaction_type.in_(['income', 'expense'])
     ).group_by(BankingTransaction.transaction_type).all()
 
@@ -156,6 +180,8 @@ def ui_analytics_overview():
 
     return render_template(
         'analytics_overview.html',
+        start_date=start_date.strftime('%Y-%m-%d'), # Pass strings for date inputs
+        end_date=end_date.strftime('%Y-%m-%d'),
         total_balance_rub=total_balance_rub,
         recent_transactions=recent_transactions,
         category_labels=category_labels,

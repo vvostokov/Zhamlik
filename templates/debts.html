@@ -10,10 +10,10 @@
     </td>
     <td class="text-right">
         <strong class="text-{{ 'danger' if debt.debt_type == 'i_owe' else 'success' }}">
-            {{ "%.2f"|format(debt.initial_amount - debt.repaid_amount) }}
+            {{ "%.2f" % (debt.initial_amount - debt.repaid_amount) }}
         </strong>
         <br>
-        <small class="text-muted">из {{ "%.2f"|format(debt.initial_amount) }} {{ debt.currency }}</small>
+        <small class="text-muted">из {{ "%.2f" % debt.initial_amount }} {{ debt.currency }}</small>
     </td>
     <td>
         {% if debt.due_date %}
@@ -62,7 +62,7 @@
                             <strong>{{ debt.counterparty }}</strong>
                             <small class="text-muted"> ({{ debt.due_date.strftime('%d.%m') }})</small>
                         </div>
-                        <span class="text-danger">{{ "%.2f"|format(debt.initial_amount - debt.repaid_amount) }} {{ debt.currency }}</span>
+                        <span class="text-danger">{{ "%.2f" % (debt.initial_amount - debt.repaid_amount) }} {{ debt.currency }}</span>
                     </li>
                     {% else %}
                     <li class="list-group-item text-muted">Нет предстоящих долгов.</li>
@@ -82,7 +82,7 @@
                             <strong>{{ payment.description }}</strong>
                             <small class="text-muted"> ({{ payment.next_due_date.strftime('%d.%m') }})</small>
                         </div>
-                        <span class="text-info">{{ "%.2f"|format(payment.amount) }} {{ payment.currency }}</span>
+                        <span class="text-info">{{ "%.2f" % payment.amount }} {{ payment.currency }}</span>
                     </li>
                     {% else %}
                     <li class="list-group-item text-muted">Нет предстоящих регулярных платежей.</li>
@@ -97,12 +97,12 @@
     <ul class="nav nav-tabs" id="debtsTabs" role="tablist">
         <li class="nav-item">
             <a class="nav-link active" id="i-owe-tab" data-toggle="tab" href="#i-owe" role="tab" aria-controls="i-owe" aria-selected="true">
-                Я должен <span class="badge badge-danger ml-1">{{ "%.2f"|format(i_owe_total) }}</span>
+                Я должен <span class="badge badge-danger ml-1">{{ "%.2f" % i_owe_total }}</span>
             </a>
         </li>
         <li class="nav-item">
             <a class="nav-link" id="owed-to-me-tab" data-toggle="tab" href="#owed-to-me" role="tab" aria-controls="owed-to-me" aria-selected="false">
-                Мне должны <span class="badge badge-success ml-1">{{ "%.2f"|format(owed_to_me_total) }}</span>
+                Мне должны <span class="badge badge-success ml-1">{{ "%.2f" % owed_to_me_total }}</span>
             </a>
         </li>
         <li class="nav-item">
@@ -171,14 +171,14 @@
                                 <tr>
                                     <td>{{ payment.description }}</td>
                                     <td>{{ payment.frequency }}</td>
-                                    <td>{{ "%.2f"|format(payment.amount) }}</td>
+                                    <td>{{ "%.2f" % payment.amount }}</td>
                                     <td>{{ payment.currency }}</td>
                                     <td>{{ payment.next_due_date.strftime('%d.%m.%Y') }}</td>
                                     <td>
                                         <button type="button" class="btn btn-sm btn-info" data-toggle="modal" data-target="#editRecurringPaymentModal{{ payment.id }}">
                                             Изменить
                                         </button>
-                                        <form action="{{ url_for('main.delete_recurring_payment', payment_id=payment.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Вы уверены, что хотите удалить этот регулярный платеж?');">
+                                        <form action="{{ url_for('main.ui_delete_recurring_payment', payment_id=payment.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Вы уверены, что хотите удалить этот регулярный платеж?');">
                                             <button type="submit" class="btn btn-sm btn-danger">Удалить</button>
                                         </form>
                                     </td>
@@ -194,7 +194,7 @@
                                                 </button>
                                             </div>
                                             <div class="modal-body">
-                                                <form method="POST" action="{{ url_for('main.edit_recurring_payment', payment_id=payment.id) }}">
+                                                <form method="POST" action="{{ url_for('main.ui_edit_recurring_payment', payment_id=payment.id) }}">
                                                     {% include 'recurring_payment_form.html' with context %}
                                                     <button type="submit" class="btn btn-primary">Сохранить изменения</button>
                                                 </form>
@@ -223,7 +223,7 @@
                             </button>
                         </div>
                         <div class="modal-body">
-                            <form method="POST" action="{{ url_for('main.add_recurring_payment') }}">
+                            <form method="POST" action="{{ url_for('main.ui_add_recurring_payment') }}">
                                 <div class="form-group">
                                     <label for="next_due_date">Дата исполнения</label>
                                     <input type="date" class="form-control" id="next_due_date" name="next_due_date" required>
@@ -276,7 +276,7 @@
                             <td><strong>{{ item.counterparty }}</strong></td>
                             <td class="text-right">
                                 <strong class="text-{{ 'danger' if item.balance < 0 else 'success' }}">
-                                    {{ "%.2f"|format(item.balance|abs) }}
+                                    {{ "%.2f" % item.balance.__abs__() }}
                                 </strong>
                             </td>
                             <td>{{ item.currency }}</td>

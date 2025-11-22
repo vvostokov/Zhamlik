@@ -11,6 +11,15 @@
         {% endfor %}
     </datalist>
 </div>
+<div class="form-group">
+    <label for="category_id">Категория</label>
+    <select class="form-control" id="category_id" name="category_id">
+        <option value="">Не указана</option>
+        {% for cat in categories %}
+        <option value="{{ cat.id }}" {% if payment.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+        {% endfor %}
+    </select>
+</div>
 <div class="row">
     <div class="form-group col-md-4">
         <label for="interval_value">Интервал (N)</label>

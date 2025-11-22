@@ -224,6 +224,9 @@ class Debt(db.Model):
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True) # Temporarily nullable
+    recurring_payment_id = db.Column(db.Integer, db.ForeignKey('recurring_payment.id'), nullable=True)
+
+    recurring_payment_ref = db.relationship('RecurringPayment', backref=db.backref('debts', lazy='dynamic'))
 
     def __repr__(self):
         return f'<Debt {self.id} from/to {self.counterparty}>'
@@ -350,7 +353,10 @@ class RecurringPayment(db.Model):
     currency = db.Column(db.String(16), nullable=False)
     next_due_date = db.Column(db.Date, nullable=False)
     counterparty = db.Column(db.String(255), nullable=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) # To associate with a user, if needed later
+
+    category_ref = db.relationship('Category', backref=db.backref('recurring_payments', lazy='dynamic'))
 
     def __repr__(self):
         return f'<RecurringPayment {self.description} - {self.amount} {self.currency}>'

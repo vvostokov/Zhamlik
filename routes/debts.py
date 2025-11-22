@@ -29,12 +29,13 @@ def _create_debt_from_recurring_payment(payment: RecurringPayment):
 
     if not existing_debt:
         new_debt = Debt(
-            debt_type='i_owe', 
-            counterparty=payment.description, 
-            initial_amount=payment.amount, 
-            currency=payment.currency, 
+            debt_type='i_owe',
+            counterparty=payment.description,
+            initial_amount=payment.amount,
+            currency=payment.currency,
             due_date=due_date,
-            user_id=payment.user_id
+            user_id=payment.user_id,
+            recurring_payment_id=payment.id
         )
         # Если у регулярного платежа есть контрагент, используем его
         if hasattr(payment, 'counterparty') and payment.counterparty:
@@ -320,15 +321,21 @@ def repay_debt(debt_id):
             if debt.debt_type == 'i_owe':
                 # I owe -> I pay -> Expense, Account balance decreases
                 tx_type = 'expense'
-                category = _get_or_create_category(debt.counterparty, type='expense')
-                category_id = category.id
                 account.balance -= amount
             else: # owed_to_me
                 # Owed to me -> I receive -> Income, Account balance increases
                 tx_type = 'income'
-                category = _get_or_create_category(debt.counterparty, type='income')
-                category_id = category.id
                 account.balance += amount
+
+            # Determine category
+            if debt.recurring_payment_id and debt.recurring_payment_ref.category_ref:
+                category = debt.recurring_payment_ref.category_ref
+            else:
+                if debt.debt_type == 'i_owe':
+                    category = _get_or_create_category("Погашение долга", type='expense')
+                else:
+                    category = _get_or_create_category("Возврат долга", type='income')
+            category_id = category.id
 
             # 2. Update Debt
             debt.repaid_amount += amount
@@ -498,7 +505,8 @@ def ui_add_recurring_payment():
             currency = request.form['currency']
             next_due_date = datetime.strptime(request.form.get('next_due_date'), '%Y-%m-%d').date()
             counterparty = request.form.get('counterparty') or None
-            
+            category_id = request.form.get('category_id') or None
+
             payment = RecurringPayment(
                 description=description,
                 frequency=frequency,
@@ -507,6 +515,7 @@ def ui_add_recurring_payment():
                 currency=currency,
                 next_due_date=next_due_date,
                 counterparty=counterparty,
+                category_id=category_id,
                 user_id=current_user.id
             )
             db.session.add(payment)
@@ -520,7 +529,9 @@ def ui_add_recurring_payment():
     debt_counterparties = db.session.query(Debt.counterparty).filter(Debt.counterparty.isnot(None), Debt.user_id == current_user.id).distinct().all()
     counterparties = sorted([cp[0] for cp in debt_counterparties])
 
-    return render_template('recurring_payment_form.html', title="Создать регулярный платеж", payment={}, counterparties=counterparties)
+    categories = Category.query.filter_by(user_id=current_user.id, type='expense').order_by(Category.name).all()
+
+    return render_template('recurring_payment_form.html', title="Создать регулярный платеж", payment={}, counterparties=counterparties, categories=categories)
 
 @main_bp.route('/recurring_payments/<int:payment_id>/edit', methods=['GET', 'POST'])
 @login_required
@@ -535,7 +546,8 @@ def ui_edit_recurring_payment(payment_id):
             payment.currency = request.form['currency']
             payment.next_due_date = datetime.strptime(request.form.get('next_due_date'), '%Y-%m-%d').date()
             payment.counterparty = request.form.get('counterparty') or None
-            
+            payment.category_id = request.form.get('category_id') or None
+
             db.session.commit()
             flash('Регулярный платеж обновлен.', 'success')
             return redirect(url_for('main.ui_debts'))
@@ -546,7 +558,9 @@ def ui_edit_recurring_payment(payment_id):
     debt_counterparties = db.session.query(Debt.counterparty).filter(Debt.counterparty.isnot(None), Debt.user_id == current_user.id).distinct().all()
     counterparties = sorted([cp[0] for cp in debt_counterparties])
 
-    return render_template('recurring_payment_form.html', title="Редактировать платеж", payment=payment, counterparties=counterparties)
+    categories = Category.query.filter_by(user_id=current_user.id, type='expense').order_by(Category.name).all()
+
+    return render_template('recurring_payment_form.html', title="Редактировать платеж", payment=payment, counterparties=counterparties, categories=categories)
 
 @main_bp.route('/recurring_payments/<int:payment_id>/delete', methods=['POST'])
 @login_required

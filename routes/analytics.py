@@ -241,6 +241,20 @@ def ui_analytics_overview():
     top_merchant_labels = [item[0] for item in top_merchants]
     top_merchant_data = [float(item[1]) for item in top_merchants]
 
+    # 5.4 Top Income Accounts
+    top_income_accounts = db.session.query(
+        Account.name,
+        func.sum(BankingTransaction.amount)
+    ).join(Account, BankingTransaction.account_id == Account.id).filter(
+        Account.user_id == current_user.id,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
+        BankingTransaction.transaction_type == 'income'
+    ).group_by(Account.name).order_by(func.sum(BankingTransaction.amount).desc()).limit(5).all()
+
+    top_income_labels = [item[0] for item in top_income_accounts]
+    top_income_data = [float(item[1]) for item in top_income_accounts]
+
     # 5.5 Counterparty Data
     # Query debts and calculate balance
     from models import Debt

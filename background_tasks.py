@@ -66,7 +66,10 @@ def init_background_jobs(scheduler, app: Flask):
 def debug_ping_job():
     """Debug job to verify scheduler is working."""
     with current_app.app_context():
-        current_app.logger.info("--- [DEBUG] Scheduler ping - jobs working! ---")
+        from datetime import datetime
+        with open("/tmp/scheduler_ping.txt", "a") as f:
+            f.write(f"DEBUG {datetime.utcnow().isoformat()}\n")
+        current_app.logger.info("--- [DEBUG] Scheduler ping ---")
 
 
 def update_all_news_in_background():

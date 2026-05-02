@@ -53,6 +53,71 @@ def logout():
     logout_user()
     return redirect(url_for('main.index'))
 
+@auth_bp.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    """Страница восстановления пароля"""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        user = User.query.filter_by(username=username).first()
+        
+        if not user:
+            user = User.query.filter_by(email=username).first()
+        
+        if user:
+            # Генерируем токен для сброса
+            import secrets
+            token = secrets.token_urlsafe(32)
+            user.reset_token = token
+            user.reset_token_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+            db.session.commit()
+            
+            flash(f'Ссылка для сброса пароля отправлена. Токен: {token}', 'info')
+            current_app.logger.info(f"Password reset token generated for user: {user.username}")
+        else:
+            flash('Пользователь не найден.', 'warning')
+        
+        return redirect(url_for('auth.login'))
+    
+    return render_template('forgot_password.html', title='Восстановление пароля')
+
+@auth_bp.route('/reset-password', methods=['GET', 'POST'])
+def reset_password():
+    """Страница установки нового пароля"""
+    token = request.args.get('token', '')
+    
+    if not token:
+        flash('Токен не предоставлен.', 'danger')
+        return redirect(url_for('auth.login'))
+    
+    user = User.query.filter_by(reset_token=token).first()
+    
+    if not user or not user.reset_token_expires or user.reset_token_expires < datetime.now(timezone.utc):
+        flash('Токен истёк или недействителен.', 'danger')
+        return redirect(url_for('auth.login'))
+    
+    if request.method == 'POST':
+        new_password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if new_password != confirm_password:
+            flash('Пароли не совпадают.', 'danger')
+            return redirect(url_for('auth.reset_password', token=token))
+        
+        if len(new_password) < 6:
+            flash('Пароль должен быть не менее 6 символов.', 'danger')
+            return redirect(url_for('auth.reset_password', token=token))
+        
+        user.set_password(new_password)
+        user.reset_token = None
+        user.reset_token_expires = None
+        db.session.commit()
+        
+        flash('Пароль успешно изменён. Теперь вы можете войти.', 'success')
+        current_app.logger.info(f"Password reset completed for user: {user.username}")
+        return redirect(url_for('auth.login'))
+    
+    return render_template('reset_password.html', title='Новый пароль', token=token)
+
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:

@@ -535,19 +535,41 @@ def ui_add_category_form():
             if existing:
                 flash(f'Категория "{name}" с типом "{cat_type}" уже существует.', 'danger')
             else:
+                # Если есть parent_id, унаследуем тип от родительской категории
+                if parent_id:
+                    parent = Category.query.get(int(parent_id))
+                    if parent:
+                        cat_type = parent.type
+
                 new_category = Category(name=name, type=cat_type, parent_id=int(parent_id) if parent_id else None, user_id=current_user.id)
                 db.session.add(new_category)
                 db.session.commit()
                 flash(f'Категория "{name}" успешно добавлена.', 'success')
                 return redirect(url_for('main.ui_categories'))
-    
+
+    # GET запрос - обрабатываем parent_id из параметров URL
+    parent_id = request.args.get('parent_id')
+    parent_category_name = None
+    default_type = request.args.get('type', 'expense')
+
+    if parent_id:
+        parent = Category.query.get(int(parent_id))
+        if parent and parent.user_id == current_user.id:
+            parent_category_name = parent.name
+            default_type = parent.type
+
     parent_categories = Category.query.filter_by(parent_id=None).filter((Category.user_id == current_user.id) | (Category.user_id == None)).order_by(Category.type, Category.name).all()
-    return render_template('add_edit_category.html', title="Добавить категорию", category=None, parent_categories=parent_categories)
+    return render_template('add_edit_category.html', title="Добавить категорию", category=None, parent_categories=parent_categories, parent_id=parent_id, parent_category_name=parent_category_name, default_type=default_type)
 
 @main_bp.route('/categories/<int:category_id>/edit', methods=['GET', 'POST'])
 @login_required
 def ui_edit_category_form(category_id):
-    category = Category.query.filter_by(id=category_id, user_id=current_user.id).first_or_404()
+    category = Category.query.filter(
+        Category.id == category_id
+    ).filter(
+        (Category.user_id == current_user.id) | (Category.user_id == None)
+    ).first_or_404()
+
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
         cat_type = request.form.get('type', 'expense').strip()
@@ -559,8 +581,9 @@ def ui_edit_category_form(category_id):
             existing = Category.query.filter(
                 Category.id != category_id,
                 Category.name == name,
-                Category.type == cat_type,
-                Category.user_id == current_user.id
+                Category.type == cat_type
+            ).filter(
+                (Category.user_id == current_user.id) | (Category.user_id == None)
             ).first()
             if existing:
                 flash(f'Категория "{name}" с типом "{cat_type}" уже существует.', 'danger')
@@ -571,18 +594,26 @@ def ui_edit_category_form(category_id):
                 db.session.commit()
                 flash(f'Категория "{name}" успешно обновлена.', 'success')
                 return redirect(url_for('main.ui_categories'))
+
     parent_categories = Category.query.filter(Category.parent_id.is_(None), Category.id != category_id).filter((Category.user_id == current_user.id) | (Category.user_id == None)).order_by(Category.type, Category.name).all()
-    return render_template('add_edit_category.html', title="Редактировать категорию", category=category, parent_categories=parent_categories)
+
+    # Для GET запроса передаём parent_id=None (редактирование не создаёт подкатегорию)
+    return render_template('add_edit_category.html', title="Редактировать категорию", category=category, parent_categories=parent_categories, parent_id=None, parent_category_name=None, default_type=category.type)
 
 @main_bp.route('/categories/<int:category_id>/delete', methods=['POST'])
 @login_required
 def ui_delete_category(category_id):
-    category = Category.query.filter_by(id=category_id, user_id=current_user.id).first_or_404()
+    category = Category.query.filter(
+        Category.id == category_id
+    ).filter(
+        (Category.user_id == current_user.id) | (Category.user_id == None)
+    ).first_or_404()
+
     if BankingTransaction.query.filter_by(category_id=category_id).first() or \
        TransactionItem.query.filter_by(category_id=category_id).first():
         flash(f'Нельзя удалить категорию "{category.name}", так как она используется в транзакциях.', 'danger')
         return redirect(url_for('main.ui_categories'))
-    
+
     db.session.delete(category)
     db.session.commit()
     flash(f'Категория "{category.name}" успешно удалена.', 'success')

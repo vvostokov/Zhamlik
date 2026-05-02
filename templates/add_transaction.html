@@ -10,16 +10,50 @@
         
         <!-- Тип транзакции -->
         <div class="form-group mb-3">
-            <label for="transaction_type"><strong>Тип транзакции</strong></label>
-            <select class="form-select" id="transaction_type" name="transaction_type">
-                <option value="expense">Расход</option>
-                <option value="income">Доход</option>
-                <option value="transfer">Перевод</option>
-                <option value="purchase">Покупка (QR-сканер)</option>
-                <option value="manual_purchase">Покупка (ручной ввод)</option>
-                <option value="exchange">Обмен валюты</option>
-            </select>
+            <label><strong>Тип транзакции</strong></label>
+            <div class="d-flex gap-2 flex-wrap">
+                <input type="hidden" id="transaction_type" name="transaction_type" value="expense">
+                <button type="button" class="btn tx-type-btn btn-success active" data-value="expense" data-color="btn-success">
+                    <i class="fas fa-arrow-down"></i><br>Расход
+                </button>
+                <button type="button" class="btn tx-type-btn btn-outline-success" data-value="income" data-color="btn-success">
+                    <i class="fas fa-arrow-up"></i><br>Доход
+                </button>
+                <button type="button" class="btn tx-type-btn btn-outline-info" data-value="transfer" data-color="btn-info">
+                    <i class="fas fa-exchange-alt"></i><br>Перевод
+                </button>
+                <button type="button" class="btn tx-type-btn btn-outline-warning" data-value="purchase" data-color="btn-warning">
+                    <i class="fas fa-qrcode"></i><br>QR-чек
+                </button>
+                <button type="button" class="btn tx-type-btn btn-outline-warning" data-value="manual_purchase" data-color="btn-warning">
+                    <i class="fas fa-shopping-cart"></i><br>Покупка
+                </button>
+                <button type="button" class="btn tx-type-btn btn-outline-secondary" data-value="exchange" data-color="btn-secondary">
+                    <i class="fas fa-sync-alt"></i><br>Обмен
+                </button>
+            </div>
         </div>
+
+        <style>
+            .tx-type-btn {
+                flex: 1;
+                min-width: 80px;
+                padding: 12px 8px;
+                text-align: center;
+                transition: all 0.2s;
+            }
+            .tx-type-btn:hover {
+                transform: scale(1.05);
+            }
+            .tx-type-btn i {
+                font-size: 1.5rem;
+                margin-bottom: 4px;
+            }
+            .tx-type-btn.active {
+                transform: scale(1.1);
+                box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            }
+        </style>
 
         <!-- Общие поля для всех типов -->
         <div class="row">
@@ -87,10 +121,47 @@
                     <h5 class="mb-0">Загрузка по QR-коду чека</h5>
                 </div>
                 <div class="card-body">
-                    <div class="form-group mb-3">
-                        <label for="qr_image_input">Фотография чека с QR-кодом</label>
-                        <input type="file" class="form-control" id="qr_image_input" accept="image/*">
+                    <!-- Выбор способа сканирования -->
+                    <div class="btn-group mb-3 w-100" role="group">
+                        <button type="button" class="btn btn-outline-primary active" id="btn-file-mode" onclick="setScanMode('file')">
+                            <i class="bi bi-file-earmark-image"></i> Загрузить фото
+                        </button>
+                        <button type="button" class="btn btn-outline-primary" id="btn-camera-mode" onclick="setScanMode('camera')">
+                            <i class="bi bi-camera"></i> Камера
+                        </button>
                     </div>
+
+                    <!-- Режим файла -->
+                    <div id="file-scan-mode">
+                        <div class="form-group mb-3">
+                            <label for="qr_image_input">Фотография чека с QR-кодом</label>
+                            <input type="file" class="form-control" id="qr_image_input" accept="image/*">
+                        </div>
+                    </div>
+
+                    <!-- Режим камеры -->
+                    <div id="camera-scan-mode" style="display: none;">
+                        <div class="form-group mb-3">
+                            <label>Сканирование через камеру</label>
+                            <div class="position-relative">
+                                <video id="qr-video" class="w-100" style="max-height: 400px; background: #000;" playsinline></video>
+                                <canvas id="qr-canvas" style="display: none;"></canvas>
+                                <div id="qr-overlay" class="position-absolute" style="top: 50%; left: 50%; transform: translate(-50%, -50%); width: 200px; height: 200px; border: 2px solid #0d6efd; border-radius: 10px;"></div>
+                            </div>
+                            <div class="mt-2 text-center">
+                                <button type="button" class="btn btn-success" id="btn-start-camera" onclick="startCamera()">
+                                    <i class="bi bi-camera-video"></i> Включить камеру
+                                </button>
+                                <button type="button" class="btn btn-danger" id="btn-stop-camera" onclick="stopCamera()" style="display: none;">
+                                    <i class="bi bi-camera-video-off"></i> Выключить камеру
+                                </button>
+                            </div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i> Наведите QR-код чека на камеру. Сканирование произойдёт автоматически.
+                        </div>
+                    </div>
+
                     <div id="qr-status" class="mt-2"></div>
                 </div>
             </div>
@@ -185,17 +256,63 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.5.0/dist/jsQR.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const typeSelect = document.getElementById('transaction_type');
+    // Check if using HTTPS for camera access
+    const isSecure = window.location.protocol === 'https:';
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const currentUrl = window.location.href;
+    
+    // Show HTTPS warning if not secure and not localhost, but only on production IP
+    if (!isSecure && !isLocalhost && currentUrl.includes('193.29.224.20')) {
+        // Don't redirect automatically, just show a banner
+        const httpsBanner = document.createElement('div');
+        httpsBanner.className = 'alert alert-info alert-dismissible fade show m-3';
+        httpsBanner.innerHTML = `
+            <strong>💡 Совет:</strong> Для работы камеры используйте 
+            <a href="https://193.29.224.20:8443${window.location.pathname}" class="alert-link">HTTPS соединение (порт 8443)</a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.querySelector('.container').prepend(httpsBanner);
+    }
+
+    const typeInput = document.getElementById('transaction_type');
+    const typeButtons = document.querySelectorAll('.tx-type-btn');
+    // --- Обработчик кликов по кнопкам типов транзакций ---
+    typeButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const value = this.dataset.value;
+            const color = this.dataset.color;
+
+            // Обновляем скрытый input
+            typeInput.value = value;
+
+            // Сбрасываем все кнопки
+            typeButtons.forEach(b => {
+                b.classList.remove('active');
+                b.classList.remove('btn-success', 'btn-info', 'btn-warning', 'btn-secondary');
+                b.classList.add('btn-outline-' + b.dataset.color);
+            });
+
+            // Активируем выбранную кнопку
+            this.classList.add('active');
+            this.classList.remove('btn-outline-' + color);
+            this.classList.add('btn-' + color);
+
+            // Обновляем форму
+            updateFormFields();
+        });
+    });
+
+
     const addItemBtn = document.getElementById('add-item-btn');
     const qrImageInput = document.getElementById('qr_image_input');
     const statusDiv = document.getElementById('qr-status');
 
     // --- Функция для обновления видимости полей формы ---
     function updateFormFields() {
-        const type = typeSelect.value;
+        const type = typeInput.value;
         
         // Скрываем все специфичные блоки
         document.getElementById('income-expense-fields').style.display = 'none';
@@ -328,7 +445,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 const imageData = context.getImageData(0, 0, img.width, img.height);
                 const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                    inversionAttempts: "dontInvert",
+                    inversionAttempts: "onlySquare",
                 });
 
                 if (code) {
@@ -349,15 +466,180 @@ document.addEventListener('DOMContentLoaded', function() {
         statusDiv.textContent = 'Анализ изображения...';
     }
 
+    // --- Переменные для камеры ---
+    let videoStream = null;
+    let scanningInterval = null;
+
+    // --- Функция для переключения режима сканирования ---
+    window.setScanMode = function(mode) {
+        const fileMode = document.getElementById('file-scan-mode');
+        const cameraMode = document.getElementById('camera-scan-mode');
+        const btnFile = document.getElementById('btn-file-mode');
+        const btnCamera = document.getElementById('btn-camera-mode');
+        const statusDiv = document.getElementById('qr-status');
+
+        if (mode === 'file') {
+            fileMode.style.display = 'block';
+            cameraMode.style.display = 'none';
+            btnFile.classList.add('active');
+            btnCamera.classList.remove('active');
+            stopCamera();
+            statusDiv.textContent = '';
+        } else if (mode === 'camera') {
+            // Проверяем HTTPS и поддержку API ПЕРЕД переключением на камеру
+            const isSecure = window.location.protocol === 'https:';
+            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            
+            if (!isSecure && !isLocalhost) {
+                statusDiv.className = 'alert alert-warning';
+                statusDiv.innerHTML = `
+                    <strong>⚠️ Камера требует HTTPS!</strong><br><br>
+                    Текущее соединение: <strong>${window.location.protocol}</strong><br><br>
+                    <strong>Решение:</strong> Перейдите на HTTPS порт 8443:<br>
+                    <a href="https://193.29.224.20:8443${window.location.pathname}" class="btn btn-success btn-sm mt-2">
+                        🔒 Открыть HTTPS версию
+                    </a><br><br>
+                    <small class="text-muted">
+                        ℹ️ После перехода примите самоподписанный сертификат:<br>
+                        "Дополнительно" → "Перейти на сайт небезопасно"
+                    </small>
+                `;
+                
+                // Don't switch to camera mode, stay on file mode
+                return;
+            }
+            
+            // Проверяем поддержку MediaDevices API
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                statusDiv.className = 'alert alert-danger';
+                statusDiv.innerHTML = `
+                    <strong>❌ Камера не поддерживается</strong><br><br>
+                    Ваш браузер не поддерживает доступ к камере.<br><br>
+                    <strong>Решение:</strong> Используйте один из браузеров:<br>
+                    • Chrome 53+<br>
+                    • Firefox 36+<br>
+                    • Safari 11+<br>
+                    • Edge 79+<br><br>
+                    <a href="https://193.29.224.20:8443${window.location.pathname}" class="btn btn-primary btn-sm mt-2" onclick="localStorage.setItem('https-redirect', 'true')">
+                        🔄 Попробовать снова
+                    </a>
+                `;
+                return;
+            }
+            
+            // Всё ок, переключаемся на камеру
+            fileMode.style.display = 'none';
+            cameraMode.style.display = 'block';
+            btnFile.classList.remove('active');
+            btnCamera.classList.add('active');
+        }
+    };
+
+    // --- Функция для запуска камеры ---
+    window.startCamera = async function() {
+        const video = document.getElementById('qr-video');
+        const btnStart = document.getElementById('btn-start-camera');
+        const btnStop = document.getElementById('btn-stop-camera');
+        const statusDiv = document.getElementById('qr-status');
+
+        try {
+            // Запрашиваем доступ к камеру (все проверки уже выполнены в setScanMode)
+            videoStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                } 
+            });
+            
+            video.srcObject = videoStream;
+            video.setAttribute('playsinline', true); // Требуется для iOS
+            video.play();
+            
+            btnStart.style.display = 'none';
+            btnStop.style.display = 'inline-block';
+            
+            statusDiv.className = 'text-info';
+            statusDiv.innerHTML = '<i class="bi bi-camera-video"></i> Камера активна. Наведите QR-код чека на камеру...';
+            
+            // Начинаем сканирование
+            requestAnimationFrame(scanQRCode);
+            
+        } catch (error) {
+            statusDiv.className = 'alert alert-danger';
+            
+            let errorMsg = error.name || error.message || 'Неизвестная ошибка';
+            let helpText = '';
+            
+            if (error.name === 'NotAllowedError' || errorMsg.includes('Permission denied')) {
+                helpText = '<br><strong>Решение:</strong> Разрешите доступ к камере в настройках браузера (значок 📷 в адресной строке).';
+            } else if (error.name === 'NotFoundError') {
+                helpText = '<br><strong>Решение:</strong> Камера не найдена. Проверьте, подключена ли камера к устройству.';
+            } else if (error.name === 'NotReadableError') {
+                helpText = '<br><strong>Решение:</strong> Камера уже используется другим приложением. Закройте другие приложения использующие камеру.';
+            }
+            
+            statusDiv.innerHTML = `<strong>Ошибка доступа к камере:</strong> ${errorMsg}${helpText}`;
+        }
+    };
+
+    // --- Функция для остановки камеры ---
+    window.stopCamera = function() {
+        const video = document.getElementById('qr-video');
+        const btnStart = document.getElementById('btn-start-camera');
+        const btnStop = document.getElementById('btn-stop-camera');
+        
+        if (videoStream) {
+            videoStream.getTracks().forEach(track => track.stop());
+            videoStream = null;
+        }
+        
+        if (scanningInterval) {
+            cancelAnimationFrame(scanningInterval);
+            scanningInterval = null;
+        }
+        
+        btnStart.style.display = 'inline-block';
+        btnStop.style.display = 'none';
+    };
+
+    // --- Функция для сканирования QR-кода с видео ---
+    function scanQRCode() {
+        const video = document.getElementById('qr-video');
+        const canvas = document.getElementById('qr-canvas');
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+
+        if (video.readyState === video.HAVE_ENOUGH_DATA && videoStream) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: "onlySquare",
+            });
+
+            if (code) {
+                // QR-код найден!
+                stopCamera();
+                parseQrDataWithApi(code.data);
+                return;
+            }
+        }
+
+        // Продолжаем сканирование
+        scanningInterval = requestAnimationFrame(scanQRCode);
+    }
+
     // --- Привязка обработчиков событий ---
-    typeSelect.addEventListener('change', updateFormFields);
+    // typeSelect.addEventListener removed('change', updateFormFields);
     addItemBtn.addEventListener('click', () => addItemRow());
     qrImageInput.addEventListener('change', (e) => handleQrImageScan(e.target.files[0]));
 
     // --- Инициализация формы при загрузке ---
     updateFormFields();
     // Для типа "Покупка" добавляем одну пустую строку по умолчанию
-    if (typeSelect.value === 'manual_purchase') {
+    if (typeInput.value === 'manual_purchase') {
         addItemRow();
     }
 });

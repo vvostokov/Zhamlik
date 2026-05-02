@@ -1,87 +1,266 @@
 {% extends "base.html" %}
 {% block styles %}
-{% block title %}Категории - Финансовый Помощник{% endblock %}
+<style>
+.category-card {
+    transition: all 0.2s;
+    border-left: 4px solid transparent;
+}
+.category-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.category-card.expense {
+    border-left-color: #dc3545;
+}
+.category-card.income {
+    border-left-color: #198754;
+}
+.subcategory-item {
+    transition: background-color 0.2s;
+}
+.subcategory-item:hover {
+    background-color: #f8f9fa;
+}
+.category-header {
+    cursor: pointer;
+}
+.category-toggle {
+    transition: transform 0.2s;
+}
+.category-toggle.collapsed {
+    transform: rotate(-90deg);
+}
+.category-actions {
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+.category-card:hover .category-actions {
+    opacity: 1;
+}
+.add-subcategory-btn {
+    font-size: 0.85rem;
+    padding: 0.25rem 0.5rem;
+}
+.badge-count {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+}
+</style>
+{% endblock %}
+
+{% block title %}Категории{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2>Категории</h2>
-        <a href="{{ url_for('main.ui_add_category_form') }}" class="btn btn-primary">Добавить категорию</a>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-tags mr-2"></i>Категории</h2>
+        <a href="{{ url_for('main.ui_add_category_form') }}" class="btn btn-primary">
+            <i class="fas fa-plus mr-1"></i>Добавить категорию
+        </a>
     </div>
 
-    <div class="row">
-        <div class="col-md-4">
-            <h4>Фильтр</h4>
-            <div class="form-group">
-                <label for="category_type_filter">Тип категории</label>
-                <select class="form-control" id="category_type_filter">
-                    <option value="all">Все</option>
-                    <option value="expense">Расход</option>
-                    <option value="income">Доход</option>
-                </select>
-            </div>
+    <!-- Tabs for expense/income -->
+    <ul class="nav nav-tabs mb-4" id="categoryTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <a class="nav-link active" id="expense-tab" data-toggle="tab" href="#expense-panel" role="tab">
+                <i class="fas fa-arrow-down text-danger mr-1"></i>Расходы
+                <span class="badge badge-danger rounded-pill ml-1">{{ expense_parents|length }}</span>
+            </a>
+        </li>
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" id="income-tab" data-toggle="tab" href="#income-panel" role="tab">
+                <i class="fas fa-arrow-up text-success mr-1"></i>Доходы
+                <span class="badge badge-success rounded-pill ml-1">{{ income_parents|length }}</span>
+            </a>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="categoryTabContent">
+        <!-- Expense Categories Panel -->
+        <div class="tab-pane fade show active" id="expense-panel" role="tabpanel">
+            {% if expense_parents %}
+                <div class="row">
+                {% for category in expense_parents %}
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="card category-card expense h-100">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div class="flex-grow-1">
+                                        <h5 class="card-title category-header" data-toggle="collapse" data-target="#collapse-exp-{{ category.id }}">
+                                            <i class="fas fa-chevron-down category-toggle collapsed mr-2" id="toggle-exp-{{ category.id }}"></i>
+                                            {{ category.name }}
+                                        </h5>
+                                        {% if category.subcategories %}
+                                            <span class="badge badge-secondary badge-count">{{ category.subcategories|length }} подкатегорий</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="category-actions dropdown">
+                                        <button class="btn btn-sm btn-link text-muted" data-toggle="dropdown">
+                                            <i class="fas fa-ellipsis-v"></i>
+                                        </button>
+                                        <div class="dropdown-menu dropdown-menu-right">
+                                            <a class="dropdown-item" href="{{ url_for('main.ui_add_category_form') }}?parent_id={{ category.id }}">
+                                                <i class="fas fa-plus mr-2"></i>Добавить подкатегорию
+                                            </a>
+                                            <a class="dropdown-item" href="{{ url_for('main.ui_edit_category_form', category_id=category.id) }}">
+                                                <i class="fas fa-edit mr-2"></i>Редактировать
+                                            </a>
+                                            <div class="dropdown-divider"></div>
+                                            <form action="{{ url_for('main.ui_delete_category', category_id=category.id) }}" method="POST" onsubmit="return confirm('Вы уверены? Все подкатегории тоже будут удалены!');">
+                                                <button type="submit" class="dropdown-item text-danger">
+                                                    <i class="fas fa-trash mr-2"></i>Удалить
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {% if category.subcategories %}
+                                    <div class="collapse mt-3" id="collapse-exp-{{ category.id }}">
+                                        <div class="list-group list-group-flush">
+                                        {% for subcategory in category.subcategories %}
+                                            <div class="list-group-item subcategory-item d-flex justify-content-between align-items-center">
+                                                <span>
+                                                    <i class="fas fa-angle-right text-muted mr-2"></i>{{ subcategory.name }}
+                                                </span>
+                                                <div class="btn-group btn-group-sm">
+                                                    <a href="{{ url_for('main.ui_edit_category_form', category_id=subcategory.id) }}" class="btn btn-outline-secondary btn-sm" title="Редактировать">
+                                                        <i class="fas fa-pencil-alt"></i>
+                                                    </a>
+                                                    <form action="{{ url_for('main.ui_delete_category', category_id=subcategory.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Удалить подкатегорию?');">
+                                                        <button type="submit" class="btn btn-outline-danger btn-sm" title="Удалить">
+                                                            <i class="fas fa-trash"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                        </div>
+                                    </div>
+                                {% else %}
+                                    <div class="mt-3">
+                                        <a href="{{ url_for('main.ui_add_category_form') }}?parent_id={{ category.id }}" class="btn btn-sm btn-outline-primary add-subcategory-btn">
+                                            <i class="fas fa-plus mr-1"></i>Добавить подкатегорию
+                                        </a>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle mr-2"></i>Категорий расходов пока нет.
+                    <a href="{{ url_for('main.ui_add_category_form') }}?type=expense" class="alert-link">Добавить первую?</a>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Income Categories Panel -->
+        <div class="tab-pane fade" id="income-panel" role="tabpanel">
+            {% if income_parents %}
+                <div class="row">
+                {% for category in income_parents %}
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="card category-card income h-100">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div class="flex-grow-1">
+                                        <h5 class="card-title category-header" data-toggle="collapse" data-target="#collapse-inc-{{ category.id }}">
+                                            <i class="fas fa-chevron-down category-toggle collapsed mr-2" id="toggle-inc-{{ category.id }}"></i>
+                                            {{ category.name }}
+                                        </h5>
+                                        {% if category.subcategories %}
+                                            <span class="badge badge-secondary badge-count">{{ category.subcategories|length }} подкатегорий</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="category-actions dropdown">
+                                        <button class="btn btn-sm btn-link text-muted" data-toggle="dropdown">
+                                            <i class="fas fa-ellipsis-v"></i>
+                                        </button>
+                                        <div class="dropdown-menu dropdown-menu-right">
+                                            <a class="dropdown-item" href="{{ url_for('main.ui_add_category_form') }}?parent_id={{ category.id }}">
+                                                <i class="fas fa-plus mr-2"></i>Добавить подкатегорию
+                                            </a>
+                                            <a class="dropdown-item" href="{{ url_for('main.ui_edit_category_form', category_id=category.id) }}">
+                                                <i class="fas fa-edit mr-2"></i>Редактировать
+                                            </a>
+                                            <div class="dropdown-divider"></div>
+                                            <form action="{{ url_for('main.ui_delete_category', category_id=category.id) }}" method="POST" onsubmit="return confirm('Вы уверены? Все подкатегории тоже будут удалены!');">
+                                                <button type="submit" class="dropdown-item text-danger">
+                                                    <i class="fas fa-trash mr-2"></i>Удалить
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {% if category.subcategories %}
+                                    <div class="collapse mt-3" id="collapse-inc-{{ category.id }}">
+                                        <div class="list-group list-group-flush">
+                                        {% for subcategory in category.subcategories %}
+                                            <div class="list-group-item subcategory-item d-flex justify-content-between align-items-center">
+                                                <span>
+                                                    <i class="fas fa-angle-right text-muted mr-2"></i>{{ subcategory.name }}
+                                                </span>
+                                                <div class="btn-group btn-group-sm">
+                                                    <a href="{{ url_for('main.ui_edit_category_form', category_id=subcategory.id) }}" class="btn btn-outline-secondary btn-sm" title="Редактировать">
+                                                        <i class="fas fa-pencil-alt"></i>
+                                                    </a>
+                                                    <form action="{{ url_for('main.ui_delete_category', category_id=subcategory.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Удалить подкатегорию?');">
+                                                        <button type="submit" class="btn btn-outline-danger btn-sm" title="Удалить">
+                                                            <i class="fas fa-trash"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                        </div>
+                                    </div>
+                                {% else %}
+                                    <div class="mt-3">
+                                        <a href="{{ url_for('main.ui_add_category_form') }}?parent_id={{ category.id }}" class="btn btn-sm btn-outline-primary add-subcategory-btn">
+                                            <i class="fas fa-plus mr-1"></i>Добавить подкатегорию
+                                        </a>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle mr-2"></i>Категорий доходов пока нет.
+                    <a href="{{ url_for('main.ui_add_category_form') }}?type=income" class="alert-link">Добавить первую?</a>
+                </div>
+            {% endif %}
         </div>
     </div>
-
-    {% if expense_parents or income_parents %}
-        <h4 class="mt-4">Расходы</h4>
-        <ul class="list-group">
-        {% for category in expense_parents %}
-            <li class="list-group-item">
-            {{ category.name }}
-                {% if category.subcategories %}
-                <ul class="list-group">
-                    {% for subcategory in category.subcategories %}
-                    <li class="list-group-item">
-                        {{ subcategory.name }}
-                        <form action="{{ url_for('main.ui_delete_category', category_id=subcategory.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Вы уверены, что хотите удалить эту подкатегорию?');">
-                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
-                        </form>
-                    <a href="{{ url_for('main.ui_edit_category_form', category_id=subcategory.id) }}" class="btn btn-sm btn-outline-secondary mr-1"><i class="fas fa-pencil-alt"></i></a>
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
-
-                <form action="{{ url_for('main.ui_delete_category', category_id=category.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Вы уверены, что хотите удалить эту категорию и все ее подкатегории?');">
-                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
-                </form>
-
-            </li>
-        {% endfor %}
-        </ul>
-        <h4 class="mt-4">Доходы</h4>
-        <ul class="list-group">
-            {% for category in income_parents %}
-            <li class="list-group-item">
-            {{ category.name }}
-            {% if category.subcategories %}
-                <ul class="list-group">
-                    {% for subcategory in category.subcategories %}
-                    <li class="list-group-item">
-                        {{ subcategory.name }}
-                        <form action="{{ url_for('main.ui_delete_category', category_id=subcategory.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Вы уверены, что хотите удалить эту подкатегорию?');">
-                            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
-                        </form>
-                        <a href="{{ url_for('main.ui_edit_category_form', category_id=subcategory.id) }}" class="btn btn-sm btn-outline-secondary mr-1"><i class="fas fa-pencil-alt"></i></a>
-                    </li>{% endfor %}
-                </ul>{% endif %}
-            </li>
-        {% endfor %}
-        </ul>
-    {% else %}
-        <div class="alert alert-light">
-            Категорий пока нет. <a href="{{ url_for('main.ui_add_category_form') }}" class="alert-link">Добавить новую?</a>
-        </div>
-    {% endif %}
 </div>
+
 <script>
-    document.getElementById('category_type_filter').addEventListener('change', function() {
-        const selectedType = this.value;
-        // You would add javascript here to filter the display of the categories based on the selected type
-        // For example, you can add/remove the "d-none" class to hide/show categories based on their type.
-        // You would need to add a data-category-type attribute to each category element to make this work.
+document.addEventListener('DOMContentLoaded', function() {
+    // Синхронизация иконок при сворачивании/разворачивании (Bootstrap 4)
+    $('#expense-panel, #income-panel').on('show.bs.collapse', function(e) {
+        const collapse = e.target;
+        const toggleId = collapse.id.replace('collapse', 'toggle');
+        const toggle = document.getElementById(toggleId);
+        if (toggle) toggle.classList.remove('collapsed');
+    }).on('hide.bs.collapse', function(e) {
+        const collapse = e.target;
+        const toggleId = collapse.id.replace('collapse', 'toggle');
+        const toggle = document.getElementById(toggleId);
+        if (toggle) toggle.classList.add('collapsed');
     });
+
+    // Предустановка типа из URL параметра
+    const urlParams = new URLSearchParams(window.location.search);
+    const type = urlParams.get('type');
+    if (type === 'income') {
+        $('#income-tab').tab('show');
+    }
+});
 </script>
-{% endblock %}
 {% endblock %}

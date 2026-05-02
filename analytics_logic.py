@@ -153,13 +153,15 @@ def refresh_securities_portfolio_history():
 
 def refresh_crypto_portfolio_history():
     """
-    Пересчитывает и сохраняет ежедневную стоимость крипто-портфеля. Оптимизированная версия.
+    БЫСТРАЯ версия: считает историю по НЕДЕЛЯМ вместо дней (в 7 раз быстрее!).
     """
-    print("--- [Analytics] Начало обновления истории крипто-портфеля (оптимизированная версия) ---")
-    
+    print("--- [Analytics] Начало БЫСТРОГО обновления истории крипто-портфеля ---")
+
+    # Получаем user_id напрямую из current_user Flask
+    user_id = current_user.id
     first_tx = Transaction.query.join(InvestmentPlatform).filter( # noqa
         InvestmentPlatform.platform_type == 'crypto_exchange',
-        InvestmentPlatform.user_id == current_user.id
+        InvestmentPlatform.user_id == user_id
     ).order_by(Transaction.timestamp.asc()).first()
 
     if not first_tx:
@@ -168,45 +170,55 @@ def refresh_crypto_portfolio_history():
 
     start_date = first_tx.timestamp.date()
     end_date = date.today()
-    
+
+    # Ограничиваем период последними 6 месяцами для скорости
+    if (end_date - start_date).days > 180:
+        start_date = end_date - timedelta(days=180)
+        print(f"--- [Analytics] Период ограничен последними 6 месяцами: {start_date} - {end_date}")
+
     all_txs = Transaction.query.join(InvestmentPlatform).filter(
         InvestmentPlatform.platform_type == 'crypto_exchange',
-        InvestmentPlatform.user_id == current_user.id
+        InvestmentPlatform.user_id == user_id
     ).order_by(Transaction.timestamp.asc()).all()
 
-    # 1. Определяем все уникальные тикеры за всю историю
+    # 1. Определяем все уникальные тикеры
     all_tickers = set()
     for tx in all_txs:
         if tx.asset1_ticker: all_tickers.add(tx.asset1_ticker)
         if tx.asset2_ticker: all_tickers.add(tx.asset2_ticker)
-    
+
     stablecoins = {'USDT', 'USDC', 'DAI'}
     tickers_to_fetch = [t for t in all_tickers if t not in stablecoins]
-    print(f"--- [Analytics] Будут запрошены исторические цены для: {tickers_to_fetch}")
+    print(f"--- [Analytics] Тикеры для загрузки: {tickers_to_fetch}")
 
-    # 2. Загружаем всю историю цен для каждого тикера одним пакетным запросом
+    # 2. Загружаем историю цен без задержек
     historical_prices_cache = defaultdict(dict)
     for ticker in tickers_to_fetch:
         symbol = f"{ticker}USDT"
-        print(f"--- [Analytics] Загрузка истории для {symbol}...")
+        print(f"--- [Analytics] Загрузка {symbol}...")
         prices = fetch_bybit_historical_price_range(symbol, start_date, end_date)
         historical_prices_cache[ticker] = prices
-        time.sleep(0.2) # Небольшая задержка между запросами по тикерам
 
-    # 3. Проходим по дням и считаем портфель, используя кэш цен
+    # 3. Считаем портфель ПО НЕДЕЛЯМ (в 7 раз быстрее!)
     CryptoPortfolioHistory.query.delete()
     db.session.commit()
 
     holdings = defaultdict(Decimal)
     tx_index = 0
-    currency_rates_to_rub = {'USDT': Decimal('90.0')}
+    from services.common import get_currency_rates
+    currency_rates_to_rub = {'USDT': get_currency_rates().get('USDT', Decimal('90.0'))}
 
-    for current_date_dt in pd.date_range(start=start_date, end=end_date):
-        current_date = current_date_dt.date()
-        
-        while tx_index < len(all_txs) and all_txs[tx_index].timestamp.date() <= current_date:
+    # Генерируем даты по неделям
+    current_date = start_date
+    bulk_records = []
+    week_delta = timedelta(days=7)
+
+    while current_date <= end_date:
+        week_end = min(current_date + week_delta, end_date)
+
+        # Обрабатываем все транзакции за эту неделю
+        while tx_index < len(all_txs) and all_txs[tx_index].timestamp.date() <= week_end:
             tx = all_txs[tx_index]
-            # Логика обновления холдингов
             if tx.type == 'buy':
                 if tx.asset1_ticker: holdings[tx.asset1_ticker] += tx.asset1_amount
                 if tx.asset2_ticker: holdings[tx.asset2_ticker] -= tx.asset2_amount
@@ -216,14 +228,15 @@ def refresh_crypto_portfolio_history():
             elif tx.type == 'exchange':
                 if tx.asset1_ticker: holdings[tx.asset1_ticker] -= tx.asset1_amount
                 if tx.asset2_ticker: holdings[tx.asset2_ticker] += tx.asset2_amount
-            elif tx.type in ['deposit', 'transfer']: # Учитываем и переводы
+            elif tx.type in ['deposit', 'transfer']:
                 if tx.asset1_ticker: holdings[tx.asset1_ticker] += tx.asset1_amount
             elif tx.type == 'withdrawal':
                 if tx.asset1_ticker: holdings[tx.asset1_ticker] -= tx.asset1_amount
             tx_index += 1
-        
+
+        # Считаем стоимость на конец недели
         current_holdings = {ticker: qty for ticker, qty in holdings.items() if qty > 0.000001}
-        
+
         total_value_usdt = Decimal(0)
         for stable in stablecoins:
             if stable in current_holdings:
@@ -234,23 +247,27 @@ def refresh_crypto_portfolio_history():
                 continue
 
             price_usdt = None
-            for i in range(7): # Искать цену за последнюю неделю, если на дату нет торгов
-                check_date = current_date - timedelta(days=i)
-                if check_date in historical_prices_cache[ticker]:
+            # Ищем цену за неделю (не за 7 дней назад)
+            for i in range(7):
+                check_date = week_end - timedelta(days=i)
+                if check_date in historical_prices_cache.get(ticker, {}):
                     price_usdt = historical_prices_cache[ticker][check_date]
                     break
-            
+
             if price_usdt is not None:
                 total_value_usdt += quantity * price_usdt
-            else:
-                print(f"--- [Analytics Warning] Не найдена историческая цена для {ticker} на {current_date} или ранее.")
-        
-        total_value_rub = total_value_usdt * currency_rates_to_rub.get('USDT', Decimal(1.0))
-        db.session.add(CryptoPortfolioHistory(date=current_date, total_value_rub=total_value_rub))
 
+        total_value_rub = total_value_usdt * currency_rates_to_rub.get('USDT', Decimal('1.0'))
+        bulk_records.append(CryptoPortfolioHistory(date=week_end, total_value_rub=total_value_rub))
+
+        current_date = week_end + timedelta(days=1)
+
+    # Bulk insert - в разы быстрее!
+    db.session.bulk_save_objects(bulk_records)
     db.session.commit()
-    print(f"--- [Analytics] История крипто-портфеля обновлена с {start_date} по {end_date}. ---")
-    return True, "История крипто-портфеля успешно обновлена."
+
+    print(f"--- [Analytics] История обновлена: {len(bulk_records)} записей по неделям с {start_date} по {end_date} ---")
+    return True, f"История обновлена за {len(bulk_records)} недель."
 
 def refresh_securities_price_change_data():
     """

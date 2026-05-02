@@ -182,6 +182,7 @@ def _bitget_api_get(api_key: str, api_secret: str, passphrase: str, endpoint: st
     
     # Construct the requestPath including query parameters for signing
     request_path = endpoint
+    query_string = ''
     if params:
         # Sort parameters and encode them to form the query string
         sorted_params = sorted(params.items())
@@ -516,12 +517,26 @@ def fetch_bingx_account_assets(api_key: str, api_secret: str, passphrase: str = 
         current_app.logger.debug(f"[BingX Debug] Raw spot_data response: {json.dumps(spot_data, indent=2) if spot_data else 'No response'}")
         current_app.logger.warning("[BingX] Не удалось получить баланс Spot Account или он пуст.")
     
-    # Примечание: Получение балансов Funding и Earn для BingX отключено.
-    # API не предоставляет отдельных эндпоинтов для этих кошельков.
-    # Эндпоинт для Earn (/openApi/wealth/v1/savings/position) и Funding
-    # возвращает ошибку "api is not exist". Это может быть связано с отсутствием
-    # необходимых прав у API-ключа ("Wealth") или с тем, что эндпоинт устарел.
-    current_app.logger.info("\n--- [BingX] Получение балансов Funding и Earn пропущено (API не предоставляет эндпоинты). ---")
+    # Попытка получить Earn балансы
+    current_app.logger.info("\n--- [BingX] Попытка получить баланс Earn ---")
+    try:
+        earn_data = _bingx_api_get(api_key, api_secret, '/openApi/wealth/v1/savings/position')
+        if earn_data and earn_data.get('code') == 0 and earn_data.get('data'):
+            current_app.logger.info(f"[BingX] Earn response: {json.dumps(earn_data, indent=2)[:500]}")
+            if isinstance(earn_data['data'], list):
+                for asset_data in earn_data['data']:
+                    quantity = float(asset_data.get('amount', 0))
+                    if quantity > 1e-9:
+                        key = (asset_data.get('asset', 'USDT'), 'Earn')
+                        assets_map[key] = assets_map.get(key, 0.0) + quantity
+                        current_app.logger.info(f"[BingX] Found Earn asset: {asset_data.get('asset')}: {quantity}")
+            else:
+                current_app.logger.warning(f"[BingX] Unexpected Earn data format: {type(earn_data['data'])}")
+        else:
+            current_app.logger.warning(f"[BingX] Не удалось получить баланс Earn. Code: {earn_data.get('code') if earn_data else 'No response'}, Message: {earn_data.get('msg') if earn_data else 'No response'}")
+            current_app.logger.info("[BingX] Earn может быть недоступен для вашего API ключа (нужны права Wealth/Savings) или эндпоинт изменён.")
+    except Exception as e:
+        current_app.logger.error(f"[BingX] Исключение при получении баланса Earn: {e}")
 
 
     all_assets = []
@@ -607,14 +622,20 @@ class BybitClient(BaseApiClient):
         current_app.logger.info("\n--- [Bybit] Попытка получить баланс Unified Trading Account ---")
         try:
             unified_data = self._get('/v5/account/wallet-balance', {'accountType': 'UNIFIED'})
+            current_app.logger.debug(f"[Bybit] Unified Account response: {unified_data}")
+            if unified_data.get('retCode') != 0:
+                current_app.logger.warning(f"[Bybit] API Error for Unified Account: retCode={unified_data.get('retCode')}, retMsg={unified_data.get('retMsg')}")
             if unified_data.get('retCode') == 0 and unified_data.get('result', {}).get('list'):
                 for coin_balance in unified_data['result']['list'][0].get('coin', []):
                     balance = float(coin_balance.get('walletBalance', 0))
                     if balance > 0:
                         key = (coin_balance['coin'], 'Unified Trading')
                         assets_map[key] = assets_map.get(key, 0.0) + balance
+                        current_app.logger.info(f"[Bybit] Found {coin_balance['coin']}: {balance}")
+            else:
+                current_app.logger.warning(f"[Bybit] No balances found in Unified Account response")
         except Exception as e:
-            current_app.logger.error(f"Исключение при получении баланса Unified Account: {e}")
+            current_app.logger.error(f"Исключение при получении баланса Unified Account: {e}", exc_info=True)
 
         # 2. Funding Account
         current_app.logger.info("\n--- [Bybit] Попытка получить баланс Funding Account ---")
@@ -646,7 +667,9 @@ class BybitClient(BaseApiClient):
             except Exception as e:
                 current_app.logger.error(f"Исключение при получении баланса Earn для категории {category}: {e}")
 
-        return [{'ticker': t, 'quantity': str(q), 'account_type': at} for (t, at), q in assets_map.items() if q > 1e-9]
+        all_assets = [{'ticker': t, 'quantity': str(q), 'account_type': at} for (t, at), q in assets_map.items() if q > 1e-9]
+        current_app.logger.info(f"[Bybit] Всего найдено {len(all_assets)} активов с балансом > 0")
+        return all_assets
 
     def _fetch_paginated_history(self, endpoint, start_time_dt, end_time_dt, extra_params=None):
         """Общая функция для получения истории с пагинацией по времени и курсору."""
@@ -873,34 +896,41 @@ def fetch_bybit_all_transactions(api_key: str, api_secret: str, passphrase: str 
     }
     try:
         all_txs['transfers'] = fetch_bybit_transfer_history(api_key, api_secret, passphrase, start_time_dt, end_time_dt)
+        current_app.logger.info(f"[Bybit] Найдено переводов: {len(all_txs['transfers'])}")
     except Exception as e:
         current_app.logger.error(f"Не удалось получить историю переводов Bybit: {e}")
     try:
         all_txs['deposits'] = fetch_bybit_deposit_history(api_key, api_secret, passphrase, start_time_dt, end_time_dt)
+        current_app.logger.info(f"[Bybit] Найдено депозитов: {len(all_txs['deposits'])}")
     except Exception as e:
         current_app.logger.error(f"Не удалось получить историю депозитов Bybit: {e}")
     try:
         all_txs['internal_deposits'] = fetch_bybit_internal_deposit_history(api_key, api_secret, passphrase, start_time_dt, end_time_dt)
+        current_app.logger.info(f"[Bybit] Найдено внутренних депозитов: {len(all_txs['internal_deposits'])}")
     except Exception as e:
         current_app.logger.error(f"Не удалось получить историю внутренних депозитов Bybit: {e}")
         current_app.logger.error(f"--- [ERROR] Failed to fetch Bybit internal deposit history: {e}")
     try:
         all_txs['withdrawals'] = fetch_bybit_withdrawal_history(api_key, api_secret, passphrase, start_time_dt, end_time_dt) # Correctly call and assign
+        current_app.logger.info(f"[Bybit] Найдено выводов: {len(all_txs['withdrawals'])}")
     except Exception as e:
         current_app.logger.error(f"--- [ERROR] Failed to fetch Bybit withdrawal history: {e}")
         current_app.logger.error(f"Не удалось получить историю выводов Bybit: {e}")
     try:
         all_txs['trades'] = fetch_bybit_trade_history(api_key, api_secret, passphrase, start_time_dt, end_time_dt) # Вызываем новую функцию
+        current_app.logger.info(f"[Bybit] Найдено сделок: {len(all_txs['trades'])}")
     except Exception as e:
         current_app.logger.error(f"--- [ERROR] Failed to fetch Bybit trade history: {e}")
         current_app.logger.error(f"Не удалось получить историю сделок Bybit: {e}")
- 
+
+    total_txs = len(all_txs['transfers']) + len(all_txs['deposits']) + len(all_txs['internal_deposits']) + len(all_txs['withdrawals']) + len(all_txs['trades'])
+    current_app.logger.info(f"[Bybit] ВСЕГО найдено транзакций: {total_txs}")
     return all_txs
 def fetch_bitget_account_assets(api_key: str, api_secret: str, passphrase: str = None) -> list:
-    """Получает балансы активов с Bitget, включая Spot и Earn."""
-    current_app.logger.info(f"Получение реальных балансов с Bitget (прямой API, включая Spot и Earn) с ключом: {api_key[:5]}...")
+    """Получает балансы активов с Bitget, включая Spot, Earn и Futures."""
+    current_app.logger.info(f"Получение реальных балансов с Bitget (прямой API, включая Spot, Earn и Futures) с ключом: {api_key[:5]}...")
     if not api_key or not api_secret or not passphrase:
-        raise Exception("Для Bitget необходимы API ключ, секрет и парольная фраза.") # noqa
+        raise Exception("Для Bitget необходимы API ключ, секрет и парольная фраза.")
 
 
     assets_map = {}
@@ -925,6 +955,53 @@ def fetch_bitget_account_assets(api_key: str, api_secret: str, passphrase: str =
                 key = (asset_data['coin'], 'Earn')
                 assets_map[key] = assets_map.get(key, 0.0) + quantity
 
+    # 3. Получаем баланс USDT-Futures Account
+    current_app.logger.info("\n--- [Bitget] Попытка получить баланс USDT-Futures Account ---")
+    try:
+        futures_data = _bitget_api_get(api_key, api_secret, passphrase, '/api/v2/spot/futures/balance', {'coin': 'USDT'})
+        if futures_data and futures_data.get('data'):
+            for asset_data in futures_data.get('data', []):
+                available = float(asset_data.get('available', 0))
+                frozen = float(asset_data.get('frozen', 0))
+                locked = float(asset_data.get('locked', 0))
+                total = available + frozen + locked
+                if total > 1e-9:
+                    key = ('USDT', 'USDT-Futures')
+                    assets_map[key] = assets_map.get(key, 0.0) + total
+    except Exception as e:
+        current_app.logger.warning(f"Не удалось получить фьючерсный баланс: {e}")
+
+    # 4. Получаем позиции фьючерсов (для остальных монет)
+    current_app.logger.info("\n--- [Bitget] Попытка получить позиции USDT-Futures ---")
+    try:
+        positions_data = _bitget_api_get(api_key, api_secret, passphrase, '/api/v2/trace/futures/positions', {'productType': 'usdt-futures'})
+        if positions_data and positions_data.get('data'):
+            for pos in positions_data.get('data', []):
+                coin = pos.get('coin', '')
+                hold_amount = float(pos.get('holdAmount', 0) or 0)
+                if hold_amount > 1e-9:
+                    key = (coin, 'USDT-Futures')
+                    assets_map[key] = assets_map.get(key, 0.0) + hold_amount
+    except Exception as e:
+        current_app.logger.warning(f"Не удалось получить позиции фьючерсов: {e}")
+
+    # 5. Получаем историю переводов (Spot <-> Futures)
+    current_app.logger.info("\n--- [Bitget] Получение истории переводов между счетами ---")
+    try:
+        transfer_data = _bitget_api_get(api_key, api_secret, passphrase, '/api/v2/spot/wallet/transfer-records', {'limit': 100})
+        if transfer_data and transfer_data.get('data'):
+            for t in transfer_data.get('data', []):
+                coin = t.get('coin', '')
+                amount = float(t.get('amount', 0) or 0)
+                from_type = t.get('fromType', '')
+                to_type = t.get('toType', '')
+                if amount > 1e-9 and (from_type == 'spot' or to_type == 'spot'):
+                    # Это перевод между Spot и Futures
+                    key = (coin, 'Transfer')
+                    assets_map[key] = assets_map.get(key, 0.0) + amount
+    except Exception as e:
+        current_app.logger.warning(f"Не удалось получить переводы: {e}")
+
     all_assets = []
     for (ticker, account_type), quantity in assets_map.items():
         all_assets.append({'ticker': ticker, 'quantity': str(quantity), 'account_type': account_type})
@@ -939,6 +1016,42 @@ def fetch_bitget_all_transactions(api_key: str, api_secret: str, passphrase: str
 
     start_ts_ms = int(start_time_dt.timestamp() * 1000) if start_time_dt else None
     end_ts_ms = int(end_time_dt.timestamp() * 1000) if end_time_dt else None
+
+    def _fetch_futures_fills(fapi_key, fapi_secret, fpassphrase):
+        """Специальная функция для получения фьючерсных сделок с правильной обработкой ответа."""
+        all_records = []
+        last_id = None
+        
+        while True:
+            params = {'limit': 100, 'productType': 'usdt-futures'}
+            if last_id:
+                params['endId'] = last_id
+            
+            response_data = _bitget_api_get(fapi_key, fapi_secret, fpassphrase, '/api/v2/mix/order/fills', params)
+            if not response_data or not response_data.get('data'):
+                break
+            
+            data = response_data.get('data', {})
+            fill_list = data.get('fillList', [])
+            
+            if not fill_list:
+                break
+            
+            all_records.extend(fill_list)
+            
+            # Проверяем по времени
+            if start_ts_ms:
+                earliest = int(fill_list[-1].get('cTime', 0))
+                if earliest < start_ts_ms:
+                    break
+            
+            last_id = data.get('endId')
+            if not last_id:
+                break
+                
+            time.sleep(0.2)
+        
+        return all_records
 
     def _fetch_paginated_data_with_time(endpoint, id_key_for_record, pagination_param_name, base_params=None):
         """Общая функция для получения данных с пагинацией Bitget."""
@@ -995,29 +1108,47 @@ def fetch_bitget_all_transactions(api_key: str, api_secret: str, passphrase: str
         'deposits': [],
         'withdrawals': [],
         'trades': [],
-        'transfers': []
+        'transfers': [],
+        'futures_trades': [],
+        'funding_fees': [],
     }
     
         # --- Deposits ---
     try:
         current_app.logger.info("\n--- [Bitget] Получение истории депозитов ---")
-        all_txs['deposits'] = _fetch_paginated_data_with_time('/api/v2/spot/wallet/deposit-records', 'id', 'idLessThan')
+        # Use correct endpoint for deposits
+        all_txs['deposits'] = _fetch_paginated_data_with_time('/api/v2/spot/wallet/deposit-records', 'createTime', 'startTime')
     except Exception as e:
         current_app.logger.error(f"Не удалось получить историю депозитов Bitget: {e}")
         
     # --- Withdrawals ---
     try:
         current_app.logger.info("\n--- [Bitget] Получение истории выводов ---")
+        # Use correct endpoint and pagination
         all_txs['withdrawals'] = _fetch_paginated_data_with_time('/api/v2/spot/wallet/withdrawal-records', 'withdrawId', 'idLessThan')
     except Exception as e:
         current_app.logger.error(f"Не удалось получить историю выводов Bitget: {e}")
         
-    # --- Transfers ---
+        # --- Transfers ---
     try:
         current_app.logger.info("\n--- [Bitget] Получение истории переводов ---")
-        all_txs['transfers'] = _fetch_paginated_data_with_time('/api/v2/asset/transfer-records', 'transferId', 'idLessThan')
+        all_txs['transfers'] = _fetch_paginated_data_with_time('/api/v2/spot/wallet/transfer-records', 'id', 'idLessThan')
     except Exception as e:
         current_app.logger.error(f"Не удалось получить историю переводов Bitget: {e}")
+
+    # --- Futures Trades ---
+    try:
+        current_app.logger.info("\n--- [Bitget] Получение истории фьючерсных сделок ---")
+        all_txs['futures_trades'] = _fetch_futures_fills(api_key, api_secret, passphrase)
+    except Exception as e:
+        current_app.logger.error(f"Не удалось получить историю фьючерсных сделок: {e}")
+    
+    # --- Funding Fees ---
+    try:
+        current_app.logger.info("\n--- [Bitget] Получение истории funding fees ---")
+        all_txs['funding_fees'] = _fetch_paginated_data_with_time('/api/v2/mix/account/bills', 'billId', 'idLessThan', {'productType': 'usdt-futures'})
+    except Exception as e:
+        current_app.logger.error(f"Не удалось получить историю funding: {e}")
         
     # --- Trades ---
     try:
@@ -1396,6 +1527,8 @@ class BaseTransactionProcessor:
         self.process_withdrawals(fetched_data.get('withdrawals', []))
         self.process_transfers(fetched_data.get('transfers', []))
         self.process_trades(fetched_data.get('trades', []))
+        self.process_futures_trades(fetched_data.get('futures_trades', []))
+        self.process_funding_fees(fetched_data.get('funding_fees', []))
 
     def _add_transaction(self, tx_data):
         """Вспомогательный метод для добавления новой транзакции в сессию."""
@@ -1409,6 +1542,8 @@ class BaseTransactionProcessor:
     def process_withdrawals(self, data): pass
     def process_transfers(self, data): pass
     def process_trades(self, data): pass
+    def process_futures_trades(self, data): pass
+    def process_funding_fees(self, data): pass
 
 class BybitTransactionProcessor(BaseTransactionProcessor):
     def process_deposits(self, data):
@@ -1452,19 +1587,60 @@ class BybitTransactionProcessor(BaseTransactionProcessor):
 
 class BitgetTransactionProcessor(BaseTransactionProcessor):
     def process_deposits(self, data):
-        for d in data:
+        if not data: return
+        current_app.logger.info(f"[Bitget] Processing {len(data)} deposits")
+        # Логируем первую запись для отладки
+        if data:
+            current_app.logger.info(f"[Bitget] Sample deposit data keys: {list(data[0].keys())}")
+            current_app.logger.info(f"[Bitget] Sample deposit data: {json.dumps(data[0], indent=2, default=str)}")
+
+        for i, d in enumerate(data):
             if d.get('status') == 'success':
-                self._add_transaction(dict(exchange_tx_id=f"bitget_deposit_{d['id']}", timestamp=_convert_bybit_timestamp(d['cTime']), type='deposit', raw_type='Deposit', asset1_ticker=d['coin'], asset1_amount=Decimal(d['amount'])))
+                # Генерируем уникальный ID на основе timestamp и индекса
+                timestamp_ms = d.get('cTime', str(i * 1000000))
+                deposit_id = d.get('id') or d.get('depositId') or f"ts_{timestamp_ms}_{i}"
+
+                # Поддержка разных ключей для суммы - 'size' это правильный ключ для Bitget deposit API
+                amount = d.get('size') or d.get('amount') or d.get('transferAmount') or d.get('coinAmount') or d.get('actualAmount') or d.get('receiveAmount', '0')
+
+                # Если сумма всё равно 0 или None, логируем все значения
+                if not amount or Decimal(str(amount)) == 0:
+                    current_app.logger.warning(f"[Bitget] Deposit {i} has zero amount! Data: {json.dumps(d, indent=2, default=str)}")
+
+                try:
+                    self._add_transaction(dict(exchange_tx_id=f"bitget_deposit_{deposit_id}", timestamp=_convert_bybit_timestamp(d['cTime']), type='deposit', raw_type='Deposit', asset1_ticker=d['coin'], asset1_amount=Decimal(str(amount))))
+                except Exception as e:
+                    current_app.logger.error(f"[Bitget] Error processing deposit {i}: {e}, data keys: {list(d.keys())}")
 
     def process_withdrawals(self, data):
-        for w in data:
+        if not data: return
+        current_app.logger.debug(f"[Bitget] Processing {len(data)} withdrawals, sample keys: {list(data[0].keys()) if data else 'N/A'}")
+        for i, w in enumerate(data):
             if w.get('status') == 'success':
-                self._add_transaction(dict(exchange_tx_id=f"bitget_withdrawal_{w['withdrawId']}", timestamp=_convert_bybit_timestamp(w['cTime']), type='withdrawal', raw_type='Withdrawal', asset1_ticker=w['coin'], asset1_amount=Decimal(w['amount']), fee_amount=Decimal(w.get('fee', '0')), fee_currency=w['coin']))
+                # Генерируем уникальный ID на основе timestamp и индекса
+                timestamp_ms = w.get('cTime', str(i * 1000000))
+                withdraw_id = w.get('withdrawId') or w.get('id') or f"ts_{timestamp_ms}_{i}"
+                # Поддержка разных ключей для суммы - 'size' это правильный ключ для Bitget withdrawal API
+                amount = w.get('size') or w.get('amount') or w.get('transferAmount') or w.get('coinAmount', '0')
+                try:
+                    self._add_transaction(dict(exchange_tx_id=f"bitget_withdrawal_{withdraw_id}", timestamp=_convert_bybit_timestamp(w['cTime']), type='withdrawal', raw_type='Withdrawal', asset1_ticker=w['coin'], asset1_amount=Decimal(str(amount)), fee_amount=Decimal(w.get('fee', '0')), fee_currency=w['coin']))
+                except Exception as e:
+                    current_app.logger.error(f"[Bitget] Error processing withdrawal {i}: {e}, data keys: {list(w.keys())}")
 
     def process_transfers(self, data):
-        for t in data:
+        if not data: return
+        current_app.logger.debug(f"[Bitget] Processing {len(data)} transfers, sample keys: {list(data[0].keys()) if data else 'N/A'}")
+        for i, t in enumerate(data):
             if t.get('status') == 'success':
-                self._add_transaction(dict(exchange_tx_id=f"bitget_transfer_{t['id']}", timestamp=_convert_bybit_timestamp(t['cTime']), type='transfer', raw_type=f"{t.get('fromType', 'N/A')} -> {t.get('toType', 'N/A')}", asset1_ticker=t['coin'], asset1_amount=Decimal(t['amount']), description=f"Internal transfer on {self.platform.name}"))
+                # Генерируем уникальный ID на основе timestamp и индекса
+                timestamp_ms = t.get('cTime', str(i * 1000000))
+                transfer_id = t.get('transferId') or t.get('id') or f"ts_{timestamp_ms}_{i}"
+                # Поддержка разных ключей для суммы - 'size' это правильный ключ для Bitget transfer API
+                amount = t.get('size') or t.get('amount') or t.get('transferAmount') or t.get('coinAmount', '0')
+                try:
+                    self._add_transaction(dict(exchange_tx_id=f"bitget_transfer_{transfer_id}", timestamp=_convert_bybit_timestamp(t['cTime']), type='transfer', raw_type=f"{t.get('fromType', 'N/A')} -> {t.get('toType', 'N/A')}", asset1_ticker=t['coin'], asset1_amount=Decimal(str(amount)), description=f"Internal transfer on {self.platform.name}"))
+                except Exception as e:
+                    current_app.logger.error(f"[Bitget] Error processing transfer {i}: {e}, data keys: {list(t.keys())}")
 
     def process_trades(self, data):
         for trade in data:
@@ -1482,10 +1658,95 @@ class BitgetTransactionProcessor(BaseTransactionProcessor):
             fee_amount, fee_currency = self._parse_bitget_fee(trade, quote_coin)
             
             self._add_transaction(dict(
-                exchange_tx_id=f"bitget_trade_{trade['tradeId']}", timestamp=_convert_bybit_timestamp(trade['cTime']), type=trade['side'].lower(), raw_type=f"Spot Trade ({trade['side'].upper()})",
+                exchange_tx_id=f"bitget_trade_{trade['tradeId']}", timestamp=_convert_bybit_timestamp(trade['cTime']), type='spot_trade', raw_type=f"Spot Trade ({trade['side'].upper()})",
                 asset1_ticker=base_coin, asset1_amount=asset1_amount, asset2_ticker=quote_coin, asset2_amount=asset2_amount,
                 execution_price=execution_price, fee_amount=fee_amount, fee_currency=fee_currency
             ))
+
+    def process_futures_trades(self, data):
+        """Обработка фьючерсных сделок"""
+        if not data: return
+        current_app.logger.info(f"[Bitget] Processing {len(data)} futures trades")
+        
+        for trade in data:
+            try:
+                symbol = trade.get('symbol', '')
+                # Bitget returns baseVolume, not size
+                size = float(trade.get('baseVolume', 0) or 0)
+                price = float(trade.get('price', 0) or 0)
+                # Fee is in feeDetail
+                fee_detail = trade.get('feeDetail', [])
+                fee = 0
+                if fee_detail and isinstance(fee_detail, list):
+                    fee = abs(float(fee_detail[0].get('totalFee', '0') or 0))
+                side = trade.get('side', '').lower()
+                trade_id = trade.get('tradeId', '')
+                
+                if not symbol or not trade_id:
+                    continue
+                    
+                # Формат: BTCUSDT - берем базовую монету
+                for suffix in ['USDT', 'USDC', 'BUSD']:
+                    if symbol.endswith(suffix):
+                        base_coin = symbol[:-len(suffix)]
+                        quote_coin = suffix
+                        break
+                else:
+                    base_coin = symbol[:-4] if len(symbol) > 4 else symbol
+                    quote_coin = symbol[-4:] if len(symbol) > 4 else 'USDT'
+                
+                total_value = abs(size * price)
+                
+                # Extract realized P&L (only for close trades)
+                realized_pnl = Decimal('0')
+                trade_side = trade.get('tradeSide', 'open')
+                if trade_side == 'close':
+                    profit = trade.get('profit', '0')
+                    if profit:
+                        realized_pnl = Decimal(str(profit))
+                
+                self._add_transaction(dict(
+                    exchange_tx_id=f"bitget_futures_trade_{trade_id}",
+                    timestamp=_convert_bybit_timestamp(trade.get('cTime', 0)),
+                    type='futures_trade',
+                    raw_type=f"Futures {side.upper()} ({quote_coin})",
+                    asset1_ticker=base_coin,
+                    asset1_amount=Decimal(str(abs(size))),
+                    asset2_ticker=quote_coin,
+                    asset2_amount=Decimal(str(total_value)),
+                    execution_price=Decimal(str(price)),
+                    fee_amount=Decimal(str(fee)),
+                    fee_currency=quote_coin,
+                    realized_pnl=realized_pnl
+                ))
+            except Exception as e:
+                current_app.logger.error(f"[Bitget] Error processing futures trade: {e}")
+
+    def process_funding_fees(self, data):
+        """Обработка funding fees"""
+        if not data: return
+        current_app.logger.info(f"[Bitget] Processing {len(data)} funding fees")
+        
+        for fee in data:
+            try:
+                coin = fee.get('coin', '')
+                amount = float(fee.get('amount', 0) or 0)
+                bill_id = fee.get('billId', '')
+                
+                if not coin or not bill_id:
+                    continue
+                    
+                # Funding может быть положительным (получено) или отрицательным (оплачено)
+                self._add_transaction(dict(
+                    exchange_tx_id=f"bitget_funding_{bill_id}",
+                    timestamp=_convert_bybit_timestamp(fee.get('cTime', 0)),
+                    type='funding_fee',
+                    raw_type=f"Funding {coin}",
+                    asset1_ticker=coin,
+                    asset1_amount=Decimal(str(amount))
+                ))
+            except Exception as e:
+                current_app.logger.error(f"[Bitget] Error processing funding fee: {e}")
 
     def _parse_bitget_fee(self, trade, default_fee_currency):
         fee_detail_value = trade.get('feeDetail')
@@ -1536,26 +1797,39 @@ class BingxTransactionProcessor(BaseTransactionProcessor):
 
 class KucoinTransactionProcessor(BaseTransactionProcessor):
     def process_deposits(self, data):
+        if not data: return
+        current_app.logger.info(f"[KuCoin] Processing {len(data)} deposits")
         for d in data:
             if d.get('status') == 'SUCCESS':
                 self._add_transaction(dict(exchange_tx_id=f"kucoin_deposit_{d['walletTxId']}", timestamp=_convert_bybit_timestamp(d['createdAt']), type='deposit', raw_type=f"Deposit (inner: {d.get('isInner', False)})", asset1_ticker=d['currency'], asset1_amount=Decimal(d['amount'])))
 
     def process_withdrawals(self, data):
+        if not data: return
+        current_app.logger.info(f"[KuCoin] Processing {len(data)} withdrawals")
         for w in data:
             if w.get('status') == 'SUCCESS':
                 self._add_transaction(dict(exchange_tx_id=f"kucoin_withdrawal_{w['id']}", timestamp=_convert_bybit_timestamp(w['createdAt']), type='withdrawal', raw_type='Withdrawal', asset1_ticker=w['currency'], asset1_amount=Decimal(w['amount']), fee_amount=Decimal(w.get('fee', '0')), fee_currency=w['currency']))
 
     def process_trades(self, data):
-        for trade in data:
-            base_coin, quote_coin = trade['symbol'].split('-')
-            self._add_transaction(dict(
-                exchange_tx_id=f"kucoin_trade_{trade['tradeId']}", timestamp=_convert_bybit_timestamp(trade['createdAt']), type=trade['side'].lower(), raw_type=f"Spot Trade ({trade['side'].upper()})",
-                asset1_ticker=base_coin, asset1_amount=Decimal(trade['size']),
-                asset2_ticker=quote_coin, asset2_amount=Decimal(trade['funds']),
-                execution_price=Decimal(trade['price']), fee_amount=Decimal(trade.get('fee', '0')), fee_currency=trade.get('feeCurrency')
-            ))
+        if not data: return
+        current_app.logger.info(f"[KuCoin] Processing {len(data)} trades")
+        for i, trade in enumerate(data):
+            try:
+                base_coin, quote_coin = trade['symbol'].split('-')
+                tx_id = f"kucoin_trade_{trade['tradeId']}"
+                current_app.logger.debug(f"[KuCoin] Trade {i+1}: {tx_id}, {trade['symbol']}, {trade['side']}")
+                self._add_transaction(dict(
+                    exchange_tx_id=tx_id, timestamp=_convert_bybit_timestamp(trade['createdAt']), type=trade['side'].lower(), raw_type=f"Spot Trade ({trade['side'].upper()})",
+                    asset1_ticker=base_coin, asset1_amount=Decimal(trade['size']),
+                    asset2_ticker=quote_coin, asset2_amount=Decimal(trade['funds']),
+                    execution_price=Decimal(trade['price']), fee_amount=Decimal(trade.get('fee', '0')), fee_currency=trade.get('feeCurrency')
+                ))
+            except Exception as e:
+                current_app.logger.error(f"[KuCoin] Error processing trade {i}: {e}, trade data: {trade}")
 
     def process_transfers(self, data):
+        if not data: return
+        current_app.logger.info(f"[KuCoin] Processing {len(data)} transfers")
         for t in data:
             if t.get('direction', '').upper() != 'OUT': continue
             context = json.loads(t.get('context', '{}'))
@@ -1603,6 +1877,7 @@ SYNC_DISPATCHER = {
 SYNC_TRANSACTIONS_DISPATCHER = {
     'bybit': fetch_bybit_all_transactions,
     'bitget': fetch_bitget_all_transactions,
+    'bitget2': fetch_bitget_all_transactions,
     'bingx': fetch_bingx_all_transactions,
     'okx': fetch_okx_all_transactions,
     'kucoin': fetch_kucoin_all_transactions,
@@ -1611,6 +1886,7 @@ SYNC_TRANSACTIONS_DISPATCHER = {
 TRANSACTION_PROCESSOR_DISPATCHER = {
     'bybit': BybitTransactionProcessor,
     'bitget': BitgetTransactionProcessor,
+    'bitget2': BitgetTransactionProcessor,
     'bingx': BingxTransactionProcessor,
     'kucoin': KucoinTransactionProcessor,
     'okx': OkxTransactionProcessor,

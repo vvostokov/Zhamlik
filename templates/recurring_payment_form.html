@@ -1,10 +1,14 @@
 <div class="form-group">
+    <label for="next_due_date">Дата исполнения</label>
+    <input type="date" class="form-control" id="next_due_date" name="next_due_date" value="{{ payment.next_due_date.strftime('%Y-%m-%d') if payment.next_due_date else '' }}" required>
+</div>
+<div class="form-group">
     <label for="description">Описание</label>
-    <input type="text" class="form-control" id="description" name="description" value="{{ payment.description }}" required>
+    <input type="text" class="form-control" id="description" name="description" value="{{ payment.description if payment.description else '' }}" required>
 </div>
 <div class="form-group">
     <label for="counterparty">Контрагент</label>
-    <input class="form-control" list="counterpartyOptions" id="counterparty" name="counterparty" value="{{ payment.counterparty or '' }}" placeholder="Выберите или введите нового..." autocomplete="off">
+    <input type="text" class="form-control" id="counterparty" name="counterparty" list="counterpartyOptions" value="{{ payment.counterparty if payment.counterparty else '' }}" placeholder="Не обязательно">
     <datalist id="counterpartyOptions">
         {% for cp in counterparties %}
         <option value="{{ cp }}">
@@ -14,35 +18,43 @@
 <div class="form-group">
     <label for="category_id">Категория</label>
     <select class="form-control" id="category_id" name="category_id">
-        <option value="">Не указана</option>
+        <option value="">Без категории</option>
         {% for cat in categories %}
         <option value="{{ cat.id }}" {% if payment.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
         {% endfor %}
     </select>
 </div>
-<div class="row">
-    <div class="form-group col-md-4">
-        <label for="interval_value">Интервал (N)</label>
-        <input type="number" class="form-control" id="interval_value" name="interval_value" value="{{ payment.interval_value or 1 }}" min="1" required>
-    </div>
-    <div class="form-group col-md-8">
-        <label for="frequency">Периодичность</label>
-        <select class="form-control" id="frequency" name="frequency" required>
-            <option value="daily" {% if payment.frequency == 'daily' %}selected{% endif %}>Дни</option>
-            <option value="monthly" {% if payment.frequency == 'monthly' %}selected{% endif %}>Месяцы</option>
-            <option value="yearly" {% if payment.frequency == 'yearly' %}selected{% endif %}>Годы</option>
-        </select>
-    </div>
+<div class="form-group">
+    <label for="frequency">Периодичность</label>
+    <select class="form-control" id="frequency" name="frequency" required>
+        <option value="daily" {% if payment.frequency == 'daily' %}selected{% endif %}>Ежедневно</option>
+        <option value="weekly" {% if payment.frequency == 'weekly' %}selected{% endif %}>Еженедельно</option>
+        <option value="bi_weekly" {% if payment.frequency == 'bi_weekly' %}selected{% endif %}>Каждые 2 недели</option>
+        <option value="monthly" {% if payment.frequency == 'monthly' %}selected{% endif %}>Ежемесячно</option>
+        <option value="quarterly" {% if payment.frequency == 'quarterly' %}selected{% endif %}>Ежеквартально</option>
+        <option value="half_yearly" {% if payment.frequency == 'half_yearly' %}selected{% endif %}>Раз в полгода</option>
+        <option value="yearly" {% if payment.frequency == 'yearly' %}selected{% endif %}>Ежегодно</option>
+    </select>
+</div>
+<div class="form-group">
+    <label for="interval_value">Интервал</label>
+    <input type="number" class="form-control" id="interval_value" name="interval_value" value="{{ payment.interval_value if payment.interval_value else 1 }}" min="1" required>
+    <small class="text-muted">Количество периодов (например, 1 = каждый месяц, 2 = раз в 2 месяца)</small>
 </div>
 <div class="form-group">
     <label for="amount">Сумма</label>
-    <input type="number" class="form-control" id="amount" name="amount" step="0.01" value="{{ payment.amount }}" required>
+    <input type="number" class="form-control" id="amount" name="amount" step="0.01" value="{{ payment.amount if payment.amount else '' }}" required>
 </div>
 <div class="form-group">
     <label for="currency">Валюта</label>
-    <input type="text" class="form-control" id="currency" name="currency" value="{{ payment.currency }}" required>
+    <input type="text" class="form-control" id="currency" name="currency" value="{{ payment.currency if payment.currency else 'RUB' }}" required>
 </div>
 <div class="form-group">
-    <label for="next_due_date">Дата исполнения</label>
-    <input type="date" class="form-control" id="next_due_date" name="next_due_date" value="{{ payment.next_due_date.strftime('%Y-%m-%d') }}" required>
+    <div class="form-check">
+        <input type="checkbox" class="form-check-input" id="auto_create_debt" name="auto_create_debt" {% if payment.auto_create_debt %}checked{% endif %}>
+        <label class="form-check-label" for="auto_create_debt">
+            <strong>Автоматически создавать долг</strong><br>
+            <small class="text-muted">При создании платежа будет создан долг на указанную дату. В дальнейшем при наступлении даты платежа автоматически создаются новые долги</small>
+        </label>
+    </div>
 </div>

@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 
-from extensions import db, migrate, scheduler, login_manager
+from extensions import db, migrate, scheduler, login_manager, mail
 
 def create_app():
     """Application Factory."""
@@ -43,6 +43,14 @@ def create_app():
     # --- CryptoCompare News API Key ---
     app.config['CRYPTOCOMPARE_API_KEY'] = os.environ.get('CRYPTOCOMPARE_API_KEY')
 
+    # --- Email Configuration ---
+    app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+    app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', '587'))
+    app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'True').lower() == 'true'
+    app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
+    app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+    app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', 'noreply@zhamlik.local')
+
     # --- Scheduler Configuration ---
     app.config['SCHEDULER_API_ENABLED'] = True
     app.config['JOBS'] = [
@@ -69,6 +77,12 @@ def create_app():
             'func': 'background_tasks:create_debts_from_recurring_payments_in_background',
             'trigger': 'interval',
             'hours': 24 # Проверять и создавать долги каждый день
+        },
+        {
+            'id': 'job_check_notifications',
+            'func': 'background_tasks:check_notifications_in_background',
+            'trigger': 'interval',
+            'hours': 1 # Проверять долги и создавать уведомления каждый час
         }
     ]
 
@@ -78,6 +92,7 @@ def create_app():
     scheduler.init_app(app)
     scheduler.start()
     login_manager.init_app(app)
+    mail.init_app(app)
 
     # --- Register Jinja Filters ---
     @app.template_filter()
@@ -120,11 +135,17 @@ def create_app():
         from api_routes import api_bp
         from commands import analytics_cli, seed_cli
         from securities_logic import securities_bp
+        from routes.notifications import notifications_bp
+        from mobile_api import mobile_bp
+        from versions_api import versions_bp
 
         app.register_blueprint(main_bp)
         app.register_blueprint(auth_bp)
         app.register_blueprint(securities_bp)
         app.register_blueprint(api_bp, url_prefix='/api')
+        app.register_blueprint(mobile_bp)
+        app.register_blueprint(notifications_bp)
+        app.register_blueprint(versions_bp)
         app.cli.add_command(analytics_cli)
         app.cli.add_command(seed_cli)
 

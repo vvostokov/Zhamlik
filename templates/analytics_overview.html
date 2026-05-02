@@ -6,22 +6,77 @@
 <div class="container mt-4">
     <h2>Аналитика</h2>
 
-    <div class="card">
+    <!-- Общий баланс с разбивкой -->
+    <div class="card mb-3">
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
         <div class="card-header">
-            Общий баланс
+            <strong>Общий баланс</strong>
         </div>
         <div class="card-body">
-            <h5 class="card-title">{{ total_balance_rub }} RUB</h5>
-            <p class="card-text">Общая сумма на всех ваших банковских счетах (включая кредитные карты).</p>
+            <h3 class="card-title">{{ total_balance_rub | money_format }} RUB</h3>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <p class="card-text mb-1">
+                        <i class="bi bi-bank"></i> Банковские счета: <strong>{{ bank_balance_rub | money_format }} RUB</strong>
+                    </p>
+                    <p class="card-text mb-0">
+                        <i class="bi bi-currency-bitcoin"></i> Криптовалюты: <strong>{{ crypto_total_rub | money_format }} RUB</strong>
+                    </p>
+                </div>
+                <div class="col-md-6 text-muted small">
+                    Общая сумма на всех ваших банковских счетах и крипто-активах (включая кредитные карты)
+                </div>
+            </div>
         </div>
     </div>
 
+    <!-- Быстрые фильтры периода -->
+    <div class="mb-3">
+        <div class="btn-group" role="group">
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=7d" class="btn btn-sm {% if preset == '7d' %}btn-primary{% else %}btn-outline-primary{% endif %}">7 дней</a>
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=30d" class="btn btn-sm {% if preset == '30d' or not preset %}btn-primary{% else %}btn-outline-primary{% endif %}">30 дней</a>
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=3m" class="btn btn-sm {% if preset == '3m' %}btn-primary{% else %}btn-outline-primary{% endif %}">3 месяца</a>
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=1y" class="btn btn-sm {% if preset == '1y' %}btn-primary{% else %}btn-outline-primary{% endif %}">1 год</a>
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=all" class="btn btn-sm {% if preset == 'all' %}btn-primary{% else %}btn-outline-primary{% endif %}">Всё время</a>
+        </div>
+
+        <button class="btn btn-sm btn-outline-secondary ml-2" type="button" data-toggle="collapse" data-target="#customDateForm">
+            <i class="bi bi-calendar"></i> Произвольный период
+        </button>
+    </div>
+
+    <!-- Форма произвольного периода -->
+    <div class="collapse mb-3" id="customDateForm">
+        <div class="card card-body">
+            <form method="GET" action="{{ url_for('main.ui_analytics_overview') }}">
+                <div class="form-row align-items-center">
+                    <div class="col-auto">
+                        <label for="startDate">Начальная дата</label>
+                        <input type="date" class="form-control form-control-sm" id="startDate" name="start_date" value="{{ start_date_str }}" required>
+                    </div>
+                    <div class="col-auto">
+                        <label for="endDate">Конечная дата</label>
+                        <input type="date" class="form-control form-control-sm" id="endDate" name="end_date" value="{{ end_date_str }}" required>
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-primary btn-sm">Применить</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- KPI карточки с сравнением -->
     <div class="row mt-3">
         <div class="col-md-4">
             <div class="card text-white bg-success mb-3">
-                <div class="card-header">Доход (30 дней)</div>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Доход</span>
+                    <small {% if income_change_pct > 0 %}class="text-light"{% elif income_change_pct < 0 %}class="text-warning"{% else %}class="text-white-50"{% endif %}>
+                        {% if income_change_pct > 0 %}<i class="bi bi-arrow-up"></i> +{{ income_change_pct }}%{% elif income_change_pct < 0 %}<i class="bi bi-arrow-down"></i> {{ income_change_pct }}%{% else %}0%{% endif %}
+                    </small>
+                </div>
                 <div class="card-body">
                     <h5 class="card-title">{{ total_income | money_format }} RUB</h5>
                 </div>
@@ -29,7 +84,12 @@
         </div>
         <div class="col-md-4">
             <div class="card text-white bg-danger mb-3">
-                <div class="card-header">Расход (30 дней)</div>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Расход</span>
+                    <small {% if expense_change_pct < 0 %}class="text-light"{% elif expense_change_pct > 0 %}class="text-warning"{% else %}class="text-white-50"{% endif %}>
+                        {% if expense_change_pct > 0 %}<i class="bi bi-arrow-up"></i> +{{ expense_change_pct }}%{% elif expense_change_pct < 0 %}<i class="bi bi-arrow-down"></i> {{ expense_change_pct }}%{% else %}0%{% endif %}
+                    </small>
+                </div>
                 <div class="card-body">
                     <h5 class="card-title">{{ total_expense | money_format }} RUB</h5>
                 </div>
@@ -37,7 +97,7 @@
         </div>
         <div class="col-md-4">
             <div class="card text-white {% if net_cash_flow > 0 %}bg-primary{% else %}bg-warning{% endif %} mb-3">
-                <div class="card-header">Чистый поток (30 дней)</div>
+                <div class="card-header">Чистый поток</div>
                 <div class="card-body">
                     <h5 class="card-title">{{ net_cash_flow | money_format }} RUB</h5>
                 </div>
@@ -45,22 +105,33 @@
         </div>
     </div>
 
-    <div class="mt-3">
-        <form method="GET" action="{{ url_for('main.ui_analytics_overview') }}">
-            <div class="form-row align-items-center">
-                <div class="col-auto">
-                    <label class="sr-only" for="startDate">Начальная дата</label>
-                    <input type="date" class="form-control form-control-sm" id="startDate" name="start_date" value="{{ start_date }}" required>
-                </div>
-                <div class="col-auto">
-                    <label class="sr-only" for="endDate">Конечная дата</label>
-                    <input type="date" class="form-control form-control-sm" id="endDate" name="end_date" value="{{ end_date }}" required>
-                </div>
-                <div class="col-auto">
-                    <button type="submit" class="btn btn-primary btn-sm">Применить</button>
+    <!-- Новые метрики -->
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-subtitle mb-2 text-muted">Средний чек</h6>
+                    <h4 class="card-title">{{ avg_check }} RUB</h4>
+                    <small class="text-muted">{{ tx_count }} транзакций за период</small>
                 </div>
             </div>
-        </form>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-subtitle mb-2 text-muted">Частота транзакций</h6>
+                    <h4 class="card-title">{{ tx_frequency }}/день</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-subtitle mb-2 text-muted">Период</h6>
+                    <h4 class="card-title">{{ start_date_str }} - {{ end_date_str }}</h4>
+                </div>
+            </div>
+        </div>
     </div>
 
     <ul class="nav nav-tabs mt-4" id="analyticsTabs" role="tablist">
@@ -228,44 +299,45 @@
 </div>
 
 <script>
-    const categoryLabels = JSON.parse('{{ category_labels | safe }}');
-    const categoryData = JSON.parse('{{ category_data | safe }}');
-    const categoryPercentages = JSON.parse('{{ category_percentages | safe }}');
-    const incomeExpenseLabels = JSON.parse('{{ income_expense_labels | safe }}');
-    const incomeExpenseData = JSON.parse('{{ income_expense_data | safe }}');
-    const subcategoryLabels = JSON.parse('{{ subcategory_labels | safe }}');
-    const subcategoryData = JSON.parse('{{ subcategory_data | safe }}');
-    const productsLabels = JSON.parse('{{ products_labels | safe }}');
-    const productsData = JSON.parse('{{ products_data | safe }}');
-    
+    // Данные уже в формате JSON из-за json.dumps() на сервере
+    const categoryLabels = {{ category_labels | safe }};
+    const categoryData = {{ category_data | safe }};
+    const categoryPercentages = {{ category_percentages | safe }};
+    const incomeExpenseLabels = {{ income_expense_labels | safe }};
+    const incomeExpenseData = {{ income_expense_data | safe }};
+    const subcategoryLabels = {{ subcategory_labels | safe }};
+    const subcategoryData = {{ subcategory_data | safe }};
+    const productsLabels = {{ products_labels | safe }};
+    const productsData = {{ products_data | safe }};
+
     // Новые переменные для чистого денежного потока
-    const flowOverTimeLabels = JSON.parse('{{ flow_over_time_labels | safe }}');
-    const flowOverTimeIncome = JSON.parse('{{ flow_over_time_income | safe }}');
-    const flowOverTimeExpense = JSON.parse('{{ flow_over_time_expense | safe }}');
-    const flowOverTimeNet = JSON.parse('{{ flow_over_time_net | safe }}');
+    const flowOverTimeLabels = {{ flow_over_time_labels | safe }};
+    const flowOverTimeIncome = {{ flow_over_time_income | safe }};
+    const flowOverTimeExpense = {{ flow_over_time_expense | safe }};
+    const flowOverTimeNet = {{ flow_over_time_net | safe }};
 
     // Новые переменные для расходов по счетам
-    const topExpenseAccountLabels = JSON.parse('{{ top_expense_account_labels | safe }}');
-    const topExpenseAccountData = JSON.parse('{{ top_expense_account_data | safe }}');
+    const topExpenseAccountLabels = {{ top_expense_account_labels | safe }};
+    const topExpenseAccountData = {{ top_expense_account_data | safe }};
 
     // Новые переменные для мерчантов и доходов
-    const topMerchantLabels = JSON.parse('{{ top_merchant_labels | safe }}');
-    const topMerchantData = JSON.parse('{{ top_merchant_data | safe }}');
-    const topIncomeLabels = JSON.parse('{{ top_income_labels | safe }}');
-    const topIncomeData = JSON.parse('{{ top_income_data | safe }}');
+    const topMerchantLabels = {{ top_merchant_labels | safe }};
+    const topMerchantData = {{ top_merchant_data | safe }};
+    const topIncomeLabels = {{ top_income_labels | safe }};
+    const topIncomeData = {{ top_income_data | safe }};
 
     // Counterparty Data
-    const counterpartyLabels = JSON.parse('{{ counterparty_labels | safe }}');
-    const counterpartyData = JSON.parse('{{ counterparty_data | safe }}');
+    const counterpartyLabels = {{ counterparty_labels | safe }};
+    const counterpartyData = {{ counterparty_data | safe }};
 
-    const purchaseCategoryLabels = JSON.parse('{{ purchase_category_labels | safe }}');
-    const purchaseCategoryData = JSON.parse('{{ purchase_category_data | safe }}');
-    const purchaseCategoryPercentages = JSON.parse('{{ purchase_category_percentages | safe }}');
-    
+    const purchaseCategoryLabels = {{ purchase_category_labels | safe }};
+    const purchaseCategoryData = {{ purchase_category_data | safe }};
+    const purchaseCategoryPercentages = {{ purchase_category_percentages | safe }};
+
     // Объединенные расходы по категориям
-    const combinedCategoryLabels = JSON.parse('{{ combined_category_labels | safe }}');
-    const combinedCategoryData = JSON.parse('{{ combined_category_data | safe }}');
-    const combinedCategoryPercentages = JSON.parse('{{ combined_category_percentages | safe }}');
+    const combinedCategoryLabels = {{ combined_category_labels | safe }};
+    const combinedCategoryData = {{ combined_category_data | safe }};
+    const combinedCategoryPercentages = {{ combined_category_percentages | safe }};
     
     try {
         // 1. Общие расходы по категориям (Bar)

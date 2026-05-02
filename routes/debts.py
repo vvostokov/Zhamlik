@@ -2,7 +2,7 @@ from datetime import datetime, date, timezone, timedelta
 from dateutil.relativedelta import relativedelta
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
-from flask import render_template, request, redirect, url_for, flash, current_app
+from flask import render_template, request, redirect, url_for, flash, current_app, jsonify
 from sqlalchemy.orm import joinedload
 from sqlalchemy import func, asc, desc, or_
 
@@ -14,49 +14,82 @@ from services.common import _get_or_create_category
 from flask_login import login_required, current_user
 
 def _create_debt_from_recurring_payment(payment: RecurringPayment):
-    """Creates a new Debt record from a RecurringPayment."""
-    current_app.logger.info(f"--- [Recurring Payments] Checking recurring payment: {payment.description} - {payment.next_due_date}")
-    due_date = payment.next_due_date    
-    current_app.logger.info(f"--- [Recurring Payments] Debt due date: {due_date}")
+    """
+    Создаёт долг из регулярного платежа, если:
+    1. Включён флаг auto_create_debt
+    2. Наступила дата платежа (сегодня или раньше)
+    3. Долг за эту дату ещё не создан
+    """
+    # Проверяем флаг автоматического создания
+    if not payment.auto_create_debt:
+        return
+
+    today = date.today()
+
+    # Проверяем, наступила ли дата платежа
+    if payment.next_due_date > today:
+        return
+
+    due_date = payment.next_due_date
+
+    current_app.logger.info(f"--- [Recurring Payments] Проверка платежа '{payment.description}', дата: {due_date}")
+
+    # Проверяем, существует ли уже долг за эту дату
     existing_debt = Debt.query.filter_by(
         debt_type='i_owe',
-        counterparty=payment.description,
-        initial_amount=payment.amount,
-        currency=payment.currency,
+        recurring_payment_id=payment.id,
         due_date=due_date,
         user_id=payment.user_id
     ).first()
 
-    if not existing_debt:
-        new_debt = Debt(
-            debt_type='i_owe',
-            counterparty=payment.description,
-            initial_amount=payment.amount,
-            currency=payment.currency,
-            due_date=due_date,
-            user_id=payment.user_id,
-            recurring_payment_id=payment.id
-        )
-        # Если у регулярного платежа есть контрагент, используем его
-        if hasattr(payment, 'counterparty') and payment.counterparty:
-             new_debt.counterparty = payment.counterparty
-             new_debt.description = payment.description # Описание остается описанием
-
-        db.session.add(new_debt)
-        current_app.logger.info(f"--- [Recurring Payments] Создан новый долг для {payment.description} на сумму {payment.amount} {payment.currency} с датой погашения {due_date}.")
-
+    if existing_debt:
+        current_app.logger.info(f"--- [Recurring Payments] Долг за {due_date} уже существует, обновляем дату следующего платежа")
         # Обновляем дату следующего платежа
-        interval = payment.interval_value
-        if payment.frequency == 'daily':
-            payment.next_due_date += timedelta(days=interval)
-        elif payment.frequency == 'monthly':
-            payment.next_due_date += relativedelta(months=interval)
-        elif payment.frequency == 'yearly':
-            payment.next_due_date += relativedelta(years=interval)
-        
+        _update_next_due_date(payment)
         db.session.add(payment)
+        return
+
+    # Создаём долг
+    counterparty = payment.counterparty if payment.counterparty else payment.description
+
+    new_debt = Debt(
+        debt_type='i_owe',
+        counterparty=counterparty,
+        initial_amount=payment.amount,
+        currency=payment.currency,
+        due_date=due_date,
+        user_id=payment.user_id,
+        recurring_payment_id=payment.id,
+        description=payment.description
+    )
+
+    db.session.add(new_debt)
+    current_app.logger.info(f"--- [Recurring Payments] ✅ Создан долг '{payment.description}' на {payment.amount} {payment.currency}, срок: {due_date}")
+
+    # Обновляем дату следующего платежа
+    _update_next_due_date(payment)
+    db.session.add(payment)
+
+
+def _update_next_due_date(payment: RecurringPayment):
+    """Обновляет дату следующего платежа в зависимости от периодичности."""
+    interval = payment.interval_value
+    if payment.frequency == 'daily':
+        payment.next_due_date += timedelta(days=interval)
+    elif payment.frequency == 'weekly':
+        payment.next_due_date += timedelta(weeks=interval)
+    elif payment.frequency == 'bi_weekly':
+        payment.next_due_date += timedelta(weeks=interval * 2)
+    elif payment.frequency == 'monthly':
+        payment.next_due_date += relativedelta(months=interval)
+    elif payment.frequency == 'quarterly':
+        payment.next_due_date += relativedelta(months=interval * 3)
+    elif payment.frequency == 'half_yearly':
+        payment.next_due_date += relativedelta(months=interval * 6)
+    elif payment.frequency == 'yearly':
+        payment.next_due_date += relativedelta(years=interval)
     else:
-        current_app.logger.info(f"--- [Recurring Payments] Долг для {payment.description} на сумму {payment.amount} {payment.currency} с датой погашения {due_date} уже существует.")
+        current_app.logger.warning(f"--- [Recurring Payments] Неизвестная частота: {payment.frequency}")
 
 @main_bp.route('/debts')
 @login_required
@@ -74,12 +107,17 @@ def ui_debts():
     today = date.today()
     seven_days_from_now = today + timedelta(days=7)
 
-    # 1. Upcoming Debts (I owe, active, due in next 7 days)
+    # 1. Upcoming Debts (both I owe AND owed_to_me, active, due in next 7 days OR overdue)
+    overdue_debts = [
+        d for d in i_owe_list + owed_to_me_list
+        if d.status == 'active' and d.due_date and d.due_date < today
+    ]
     upcoming_debts = [
-        d for d in i_owe_list 
+        d for d in i_owe_list + owed_to_me_list
         if d.status == 'active' and d.due_date and today <= d.due_date <= seven_days_from_now
     ]
-    upcoming_debts.sort(key=lambda d: d.due_date)
+    # Combine: overdue first (sorted by date), then upcoming
+    upcoming_debts = overdue_debts + sorted(upcoming_debts, key=lambda d: d.due_date)
 
     # 2. Upcoming Recurring Payments (next due date in next 7 days)
     upcoming_recurring_payments = [
@@ -106,32 +144,57 @@ def ui_debts():
             # Owed to me: positive balance
             counterparty_data[debt.counterparty][debt.currency]['balance'] += remaining
             counterparty_data[debt.counterparty][debt.currency]['owed_to_me_exists'] = True
-            
+
+    # Добавим ВСЕ долги (включая repaid и cancelled) для получения всех контрагентов
+    all_i_owe = Debt.query.filter_by(debt_type='i_owe', user_id=current_user.id).all()
+    all_owed_to_me = Debt.query.filter_by(debt_type='owed_to_me', user_id=current_user.id).all()
+
+    # Отметим всех контрагентов, которые когда-либо были
+    for debt in all_i_owe + all_owed_to_me:
+        if debt.counterparty not in counterparty_data:
+            counterparty_data[debt.counterparty] = defaultdict(lambda: {'balance': Decimal(0), 'i_owe_exists': False, 'owed_to_me_exists': False})
+        if debt.currency not in counterparty_data[debt.counterparty]:
+            counterparty_data[debt.counterparty][debt.currency] = {'balance': Decimal(0), 'i_owe_exists': False, 'owed_to_me_exists': False}
+
     # Format counterparty balances for template
     formatted_balances = []
     for counterparty, currency_balances in counterparty_data.items():
         for currency, data in currency_balances.items():
-            # Display even if balance is zero so history can be accessed
+            # Определяем тип долга
+            if data['i_owe_exists'] and data['owed_to_me_exists']:
+                debt_type = 'both'
+            elif data['i_owe_exists']:
+                debt_type = 'i_owe'
+            elif data['owed_to_me_exists']:
+                debt_type = 'owed_to_me'
+            else:
+                # Если нет активных долгов, но контрагент есть в истории
+                debt_type = 'none'
+
+            # Показываем всех контрагентов, даже с нулевым балансом
             formatted_balances.append({
                 'counterparty': counterparty,
                 'currency': currency,
                 'balance': data['balance'],
+                'type': debt_type,
                 'can_net': data['i_owe_exists'] and data['owed_to_me_exists']
             })
-    
+
     # Sort by counterparty name
     formatted_balances.sort(key=lambda x: x['counterparty'])
     # --- NEW LOGIC END ---
 
-    return render_template('debts.html', 
-                           i_owe_list=i_owe_list, 
+    return render_template('debts.html',
+                           i_owe_list=i_owe_list,
                            owed_to_me_list=owed_to_me_list,
                            i_owe_total=i_owe_total,
                            owed_to_me_total=owed_to_me_total,
                            recurring_payments=recurring_payments,
                            upcoming_debts=upcoming_debts,
                            upcoming_recurring_payments=upcoming_recurring_payments,
-                           counterparty_balances=formatted_balances)
+                           counterparty_balances=formatted_balances,
+                           all_counterparties=formatted_balances,
+                           today=today)
 
 @main_bp.route('/debts/add', methods=['GET', 'POST'])
 @login_required
@@ -349,12 +412,15 @@ def repay_debt(debt_id):
             if description:
                 tx_desc = f"Погашение долга: {description}"
             else:
-                tx_desc = f"Погашение долга: {debt.description or ''}"
-            
+                tx_desc = f"Погашение долга: {debt.description or debt.counterparty}"
+
+            # Парсим дату и время
+            transaction_date = datetime.strptime(date_str, '%Y-%m-%d')
+
             new_tx = BankingTransaction(
                 amount=amount,
                 transaction_type=tx_type,
-                date=datetime.strptime(date_str, '%Y-%m-%d').date(),
+                date=transaction_date,
                 description=tx_desc,
                 account_id=account.id,
                 debt_id=debt.id,
@@ -376,7 +442,10 @@ def repay_debt(debt_id):
     if not accounts:
         accounts = Account.query.filter_by(is_active=True, user_id=current_user.id).all()
 
-    return render_template('repay_debt.html', debt=debt, accounts=accounts, now=datetime.now(), all_netting_debts=all_netting_debts)
+    # Вычисляем остаток к погашению для шаблона
+    remaining_amount = debt.initial_amount - debt.repaid_amount
+
+    return render_template('repay_debt.html', debt=debt, accounts=accounts, remaining_amount=remaining_amount, now=datetime.now(), all_netting_debts=all_netting_debts)
 
 @main_bp.route('/debts/net/<path:counterparty>/<string:currency>', methods=['GET', 'POST'])
 @login_required
@@ -506,6 +575,7 @@ def ui_add_recurring_payment():
             next_due_date = datetime.strptime(request.form.get('next_due_date'), '%Y-%m-%d').date()
             counterparty = request.form.get('counterparty') or None
             category_id = request.form.get('category_id') or None
+            auto_create_debt = request.form.get('auto_create_debt') == 'on'
 
             payment = RecurringPayment(
                 description=description,
@@ -516,11 +586,31 @@ def ui_add_recurring_payment():
                 next_due_date=next_due_date,
                 counterparty=counterparty,
                 category_id=category_id,
-                user_id=current_user.id
+                user_id=current_user.id,
+                auto_create_debt=auto_create_debt
             )
             db.session.add(payment)
             db.session.commit()
-            flash('Регулярный платеж успешно создан.', 'success')
+
+            # Если включено авто-создание долга, создаём первый долг сразу
+            if auto_create_debt:
+                counterparty_name = counterparty if counterparty else description
+                new_debt = Debt(
+                    debt_type='i_owe',
+                    counterparty=counterparty_name,
+                    initial_amount=amount,
+                    currency=currency,
+                    due_date=next_due_date,
+                    user_id=current_user.id,
+                    recurring_payment_id=payment.id,
+                    description=description
+                )
+                db.session.add(new_debt)
+                db.session.commit()
+                flash(f'Регулярный платеж создан. Создан долг на {next_due_date.strftime("%d.%m.%Y")}', 'success')
+            else:
+                flash('Регулярный платеж успешно создан.', 'success')
+
             return redirect(url_for('main.ui_debts'))
         except (ValueError, InvalidOperation) as e:
             flash(f'Ошибка в данных: {e}', 'danger')
@@ -547,9 +637,43 @@ def ui_edit_recurring_payment(payment_id):
             payment.next_due_date = datetime.strptime(request.form.get('next_due_date'), '%Y-%m-%d').date()
             payment.counterparty = request.form.get('counterparty') or None
             payment.category_id = request.form.get('category_id') or None
+            auto_create_debt = request.form.get('auto_create_debt') == 'on'
+
+            # Если изменили флаг на True, создаём долг на текущую дату
+            was_disabled = payment.auto_create_debt == False
+            payment.auto_create_debt = auto_create_debt
 
             db.session.commit()
-            flash('Регулярный платеж обновлен.', 'success')
+
+            # Если включили авто-создание, и долг на текущую дату ещё не существует
+            if auto_create_debt and was_disabled:
+                existing_debt = Debt.query.filter_by(
+                    debt_type='i_owe',
+                    recurring_payment_id=payment.id,
+                    due_date=payment.next_due_date,
+                    user_id=payment.user_id
+                ).first()
+
+                if not existing_debt:
+                    counterparty_name = payment.counterparty if payment.counterparty else payment.description
+                    new_debt = Debt(
+                        debt_type='i_owe',
+                        counterparty=counterparty_name,
+                        initial_amount=payment.amount,
+                        currency=payment.currency,
+                        due_date=payment.next_due_date,
+                        user_id=payment.user_id,
+                        recurring_payment_id=payment.id,
+                        description=payment.description
+                    )
+                    db.session.add(new_debt)
+                    db.session.commit()
+                    flash(f'Регулярный платеж обновлен. Создан долг на {payment.next_due_date.strftime("%d.%m.%Y")}', 'success')
+                else:
+                    flash('Регулярный платеж обновлен.', 'success')
+            else:
+                flash('Регулярный платеж обновлен.', 'success')
+
             return redirect(url_for('main.ui_debts'))
         except (ValueError, InvalidOperation) as e:
             flash(f'Ошибка в данных: {e}', 'danger')
@@ -570,3 +694,125 @@ def ui_delete_recurring_payment(payment_id):
     db.session.commit()
     flash('Регулярный платеж удален.', 'success')
     return redirect(url_for('main.ui_debts'))
+
+
+# ============= ОБЯЗАТЕЛЬСТВА (OBLIGATIONS) =============
+
+@main_bp.route('/api/obligations')
+@login_required
+def api_obligations():
+    """
+    Unified API для обязательств, объединяющий долги и регулярные платежи.
+    Возвращает все обязательства в едином формате.
+    """
+    try:
+        # Get filter parameters
+        filter_type = request.args.get('type', 'all')  # 'all', 'i_owe', 'owed_to_me', 'recurring'
+        filter_status = request.args.get('status', 'all')  # 'all', 'active', 'completed'
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+
+        obligations = []
+
+        # 1. Get all Debts
+        debts_query = Debt.query.filter_by(user_id=current_user.id)
+
+        if filter_type in ['i_owe', 'owed_to_me']:
+            debts_query = debts_query.filter_by(debt_type=filter_type)
+
+        if date_from:
+            debts_query = debts_query.filter(Debt.due_date >= date_from)
+        if date_to:
+            debts_query = debts_query.filter(Debt.due_date <= date_to)
+
+        debts = debts_query.all()
+
+        for debt in debts:
+            remaining = debt.initial_amount - debt.repaid_amount
+            obligations.append({
+                'id': f"debt_{debt.id}",
+                'type': 'debt',
+                'subtype': debt.debt_type,  # 'i_owe' or 'owed_to_me'
+                'is_recurring': bool(debt.recurring_payment_id),
+                'counterparty': debt.counterparty,
+                'description': debt.description,
+                'amount': float(debt.initial_amount),
+                'remaining': float(remaining),
+                'currency': debt.currency,
+                'due_date': debt.due_date.isoformat() if debt.due_date else None,
+                'status': debt.status,
+                'created_at': debt.created_at.isoformat() if debt.created_at else None,
+                'actions': {
+                    'repay': url_for('main.repay_debt', debt_id=debt.id) if debt.status == 'active' else None,
+                    'edit': url_for('main.edit_debt', debt_id=debt.id),
+                    'delete': url_for('main.delete_debt', debt_id=debt.id)
+                }
+            })
+
+        # 2. Get all Recurring Payments (that are NOT linked to active debts)
+        recurring_query = RecurringPayment.query.filter_by(user_id=current_user.id)
+
+        # Only show recurring payments separately if filter allows
+        if filter_type in ['all', 'recurring']:
+            recurring_payments = recurring_query.all()
+
+            for payment in recurring_payments:
+                # Check if there's an active debt for the upcoming payment
+                upcoming_debt = Debt.query.filter_by(
+                    recurring_payment_id=payment.id,
+                    due_date=payment.next_due_date
+                ).first()
+
+                if not upcoming_debt:  # Only show if not already created as debt
+                    obligations.append({
+                        'id': f"recurring_{payment.id}",
+                        'type': 'recurring',
+                        'subtype': 'i_owe',  # Recurring payments are always expenses
+                        'is_recurring': True,
+                        'counterparty': payment.counterparty or payment.description,
+                        'description': payment.description,
+                        'amount': float(payment.amount),
+                        'remaining': float(payment.amount),  # Full amount is remaining
+                        'currency': payment.currency,
+                        'due_date': payment.next_due_date.isoformat() if payment.next_due_date else None,
+                        'status': 'active',
+                        'frequency': payment.frequency,
+                        'interval_value': payment.interval_value,
+                        'created_at': None,
+                        'actions': {
+                            'edit': url_for('main.ui_edit_recurring_payment', payment_id=payment.id),
+                            'delete': url_for('main.ui_delete_recurring_payment', payment_id=payment.id)
+                        }
+                    })
+
+        # Sort by due date
+        obligations.sort(key=lambda x: (x['due_date'] or '9999-12-31'))
+
+        # Calculate totals
+        total_i_owe = sum(o['remaining'] for o in obligations if o['subtype'] == 'i_owe' and o['status'] == 'active')
+        total_owed_to_me = sum(o['remaining'] for o in obligations if o['subtype'] == 'owed_to_me' and o['status'] == 'active')
+
+        return jsonify({
+            'obligations': obligations,
+            'totals': {
+                'i_owe': float(total_i_owe),
+                'owed_to_me': float(total_owed_to_me),
+                'net': float(total_owed_to_me - total_i_owe)
+            },
+            'summary': {
+                'total_count': len(obligations),
+                'active_count': len([o for o in obligations if o['status'] == 'active']),
+                'recurring_count': len([o for o in obligations if o['is_recurring']])
+            }
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"[API_OBLIGATIONS] Error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/obligations')
+@login_required
+def ui_obligations():
+    """Новый unified интерфейс Обязательств"""
+    return render_template('obligations.html')

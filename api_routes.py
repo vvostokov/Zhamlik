@@ -22,7 +22,12 @@ def handle_parse_qr():
     Если qr_string не передан, ожидает получить изображение чека в multipart/form-data.
     """
 
-    if 'qr_string' in request.form:
+    # Сначала проверяем JSON (для AJAX запросов)
+    if request.is_json:
+        data = request.get_json()
+        qr_string = data.get('qr_string') if data else None
+    # Затем проверяем form-data (для загрузки файлов)
+    elif 'qr_string' in request.form:
         qr_string = request.form['qr_string']
     elif 'qr_image' in request.files:
         try:
@@ -31,15 +36,18 @@ def handle_parse_qr():
             if decoded_objects:
                 qr_string = decoded_objects[0].data.decode('utf-8')
 
-            
+
         except Exception as e:
             return jsonify({'error': f'Ошибка обработки изображения: {str(e)}'}), 400
-    else:
+
+    # Проверяем, что qr_string был получен
+    if not qr_string:
         return jsonify({'error': 'Необходимо передать qr_string или изображение чека.'}), 400
 
-
-    if not current_app.config.get('FNS_API_USERNAME') or not current_app.config.get('FNS_API_PASSWORD'):
-        return jsonify({'error': 'Сервис QR-кодов не настроен на сервере.'}), 503
+    # Проверяем наличие токена proverkacheka.com
+    from fns_client import PROVERKACHEKA_TOKEN
+    if not PROVERKACHEKA_TOKEN:
+        return jsonify({'error': 'Сервис QR-кодов не настроен. Необходимо указать PROVERKACHEKA_TOKEN в .env файле.'}), 503
 
     try:
         parsed_data = parse_receipt_qr(qr_string)

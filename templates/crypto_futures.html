@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Фьючерсы</h2>
+            <p class="text-muted">Отслеживание открытых позиций по фьючерсам</p>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Общий P&L</h5>
+                    <h3 id="totalPnl" class="{% if total_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
+                        ${{ total_pnl | default(0) }}
+                    </h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Открытых позиций</h5>
+                    <h3 id="totalPositions">{{ total_positions | default(0) }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Бирж</h5>
+                    <h3 id="platformsCount">{{ platforms_count | default(0) }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Открытые позиции</h5>
+                </div>
+                <div class="card-body">
+                    <div id="positionsList">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="sr-only">Загрузка...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Get session cookie from document.cookie
+function getSessionCookie() {
+    const name = "session=";
+    const decodedCookie = decodeURIComponent(document.cookie);
+    const ca = decodedCookie.split(';');
+    for(let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) == ' ') c = c.substring(1);
+        if (c.indexOf(name) == 0) return c.substring(name.length, c.length);
+    }
+    return "";
+}
+let sessionCookie = getSessionCookie();
+
+async function loadFuturesData() {
+    try {
+        const response = await fetch('/api/mobile/crypto/futures/overview', {
+            headers: {
+                'Cookie': sessionCookie || ''
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                document.getElementById('totalPnl').textContent = '$' + data.total_unrealized_pnl.toFixed(2);
+                document.getElementById('totalPnl').className = data.total_unrealized_pnl >= 0 ? 'text-success' : 'text-danger';
+                document.getElementById('totalPositions').textContent = data.total_positions;
+                document.getElementById('platformsCount').textContent = data.platforms_with_positions;
+            }
+        }
+        
+        // Load positions
+        const positionsResponse = await fetch('/api/mobile/crypto/futures/positions', {
+            headers: {
+                'Cookie': sessionCookie || ''
+            }
+        });
+        
+        if (positionsResponse.ok) {
+            const data = await positionsResponse.json();
+            renderPositions(data.positions || []);
+        }
+        
+    } catch (error) {
+        console.error('Error loading futures data:', error);
+        document.getElementById('positionsList').innerHTML = '<p class="text-danger">Ошибка загрузки данных</p>';
+    }
+}
+
+function renderPositions(positions) {
+    if (positions.length === 0) {
+        document.getElementById('positionsList').innerHTML = '<p class="text-muted">Нет открытых позиций</p>';
+        return;
+    }
+    
+    let html = '<table class="table table-hover">';
+    html += '<thead><tr>';
+    html += '<th>Биржа</th><th>Символ</th><th>Сторона</th><th>Размер</th><th>Цена входа</th><th>Текущая цена</th><th>Комиссия</th><th>P&L</th><th>P&L %</th>';
+    
+    positions.forEach(pos => {
+        const pnl = pos.unrealized_pnl || pos.pnl || 0;
+        const pnlClass = pnl >= 0 ? 'text-success' : 'text-danger';
+        
+        html += '<tr>';
+        html += '<td>' + pos.platform_name + '</td>';
+        html += '<td>' + pos.symbol + '</td>';
+        html += '<td><span class="badge ' + (pos.side === 'Buy' ? 'badge-success' : 'badge-danger') + '">' + pos.side + '</span></td>';
+        html += '<td>' + pos.size + '</td>';
+        html += '<td>$' + pos.entry_price.toFixed(2) + '</td>';
+        html += '<td>$' + pos.mark_price.toFixed(2) + '</td>';
+        html += '<td>$' + (pos.fees || 0).toFixed(2) + '</td>';
+        const pnlPercent = pos.entry_price > 0 ? ((pnl / (pos.entry_price * pos.size)) * 100) : 0;
+        html += '<td class="' + pnlClass + '">$' + pnl.toFixed(2) + ' (' + pnlPercent.toFixed(2) + '%)</td>';
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table>';
+    document.getElementById('positionsList').innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', loadFuturesData);
+</script>
+{% endblock %}
+

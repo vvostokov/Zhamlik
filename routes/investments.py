@@ -46,7 +46,13 @@ def _apply_crypto_transaction_filters_and_sort(query, args):
     filter_type = args.get('filter_type', 'all')
     if filter_type != 'all':
         if filter_type == 'buy_sell':
-            query = query.filter(Transaction.type.in_(['buy', 'sell']))
+            query = query.filter(Transaction.type.in_(['buy', 'sell', 'spot_trade']))
+        elif filter_type == 'spot':
+            query = query.filter(Transaction.type.in_(['spot_trade', 'deposit', 'withdrawal']))
+        elif filter_type == 'futures':
+            query = query.filter(Transaction.type.in_(['futures_trade', 'funding_fee', 'futures_transfer']))
+        elif filter_type == 'transfers':
+            query = query.filter(Transaction.type.in_(['transfer', 'futures_transfer']))
         else:
             query = query.filter(Transaction.type == filter_type)
     
@@ -271,6 +277,27 @@ def ui_sync_investment_platform_transactions(platform_id):
         flash(f'Ошибка при синхронизации транзакций для "{platform.name}": {message}', 'danger')
     return redirect(url_for('main.ui_investment_platform_detail', platform_id=platform.id))
 
+@main_bp.route('/platforms/<int:platform_id>/sync_transactions_background', methods=['POST'])
+@login_required
+def ui_sync_investment_platform_transactions_background(platform_id):
+    """Запускает синхронизацию транзакций в фоновом режиме с уведомлением."""
+    from background_tasks import sync_platform_transactions_background
+    import threading
+
+    platform = InvestmentPlatform.query.filter_by(id=platform_id, user_id=current_user.id).first_or_404()
+
+    # Запускаем синхронизацию в отдельном потоке
+    thread = threading.Thread(
+        target=sync_platform_transactions_background,
+        args=(platform_id, current_user.id)
+    )
+    thread.daemon = True
+    thread.start()
+
+    flash(f'Фоновая синхронизация транзакций для "{platform.name}" запущена. Вы получите уведомление когда она завершится.', 'info')
+
+    return redirect(url_for('main.ui_investment_platform_detail', platform_id=platform.id))
+
 @main_bp.route('/platforms/<int:platform_id>/delete', methods=['POST'])
 @login_required
 def ui_delete_investment_platform(platform_id):
@@ -475,6 +502,29 @@ def ui_crypto_assets():
 
     if not all_crypto_assets:
         return render_template('crypto_assets_overview.html', assets=[], grand_total_rub=0, grand_total_usdt=0, platform_summary=[], chart_labels='[]', chart_data='[]', chart_history_labels='[]', chart_history_values='[]')
+
+    # Автоматическое обновление истории портфеля с кэшированием
+    history_count = CryptoPortfolioHistory.query.count()
+    last_history = CryptoPortfolioHistory.query.order_by(CryptoPortfolioHistory.date.desc()).first()
+
+    should_refresh = False
+    if history_count == 0:
+        current_app.logger.info("--- [Crypto Assets] История портфеля пуста, запускаем автоматическое обновление...")
+        should_refresh = True
+    elif last_history and (date.today() - last_history.date).days > 1:
+        current_app.logger.info(f"--- [Crypto Assets] История портфеля устарела (последняя запись: {last_history.date}), обновляем...")
+        should_refresh = True
+
+    if should_refresh:
+        try:
+            success, msg = refresh_crypto_portfolio_history()
+            if success:
+                flash(f'История портфеля обновлена: {msg}', 'success')
+                current_app.logger.info(f"--- [Crypto Assets] История успешно обновлена: {msg}")
+            else:
+                current_app.logger.warning(f"--- [Crypto Assets] Не удалось обновить историю: {msg}")
+        except Exception as e:
+            current_app.logger.error(f"--- [Crypto Assets] Ошибка при обновлении истории: {e}", exc_info=True)
 
     aggregated_assets = defaultdict(lambda: {
         'total_quantity': Decimal(0),
@@ -735,3 +785,8 @@ def ui_securities_news():
         flash("Не удалось загрузить новости. Попробуйте позже.", "danger")
         news_articles = []
     return render_template('securities_news.html', news_articles=news_articles)
+
+@main_bp.route('/crypto-futures')
+def ui_crypto_futures():
+    """Страница фьючерсных позиций"""
+    return render_template('crypto_futures.html', total_pnl=0, total_positions=0, platforms_count=0)

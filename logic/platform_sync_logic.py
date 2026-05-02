@@ -2,12 +2,13 @@ from flask import current_app
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import json
+import time
 
 from models import InvestmentPlatform, InvestmentAsset, Transaction
 from extensions import db
 from api_clients import (
-    SYNC_DISPATCHER, 
-    SYNC_TRANSACTIONS_DISPATCHER, 
+    SYNC_DISPATCHER,
+    SYNC_TRANSACTIONS_DISPATCHER,
     PRICE_TICKER_DISPATCHER,
     TRANSACTION_PROCESSOR_DISPATCHER
 )
@@ -16,14 +17,29 @@ def sync_platform_balances(platform: InvestmentPlatform):
     """
     Основная логика для синхронизации балансов активов для одной платформы.
     """
-    sync_function = SYNC_DISPATCHER.get(platform.name.lower())
+    platform_key = platform.name.lower().replace('2', '').replace(' ', '')
+    sync_function = SYNC_DISPATCHER.get(platform_key)
+    if not sync_function:
+        # Try prefix match (e.g., "bitget2" matches "bitget")
+        for key in SYNC_DISPATCHER:
+            if platform_key.startswith(key):
+                sync_function = SYNC_DISPATCHER[key]
+                break
     if not sync_function:
         current_app.logger.warning(f"[BG_SYNC] Нет функции синхронизации балансов для платформы '{platform.name}'.")
         return False, f"Нет функции синхронизации для {platform.name}"
 
     try:
+        start_time = time.time()
+        current_app.logger.info(f"[SYNC] Начало синхронизации для {platform.name}...")
+
         api_key, api_secret, passphrase = platform.api_key, platform.api_secret, platform.passphrase
+
+        # Логируем начало API вызова
+        api_start = time.time()
         fetched_assets_data = sync_function(api_key=api_key, api_secret=api_secret, passphrase=passphrase)
+        api_time = time.time() - api_start
+        current_app.logger.info(f"[SYNC] API вызов для {platform.name} занял {api_time:.2f} сек, получено {len(fetched_assets_data)} активов")
         
         prices_by_ticker = {}
         price_fetcher_config = PRICE_TICKER_DISPATCHER.get(platform.name.lower())
@@ -62,8 +78,7 @@ def sync_platform_balances(platform: InvestmentPlatform):
                 new_asset = InvestmentAsset(
                     ticker=ticker, name=ticker, asset_type='crypto', quantity=quantity,
                     current_price=current_price, currency_of_price='USDT',
-                    platform_id=platform.id, source_account_type=account_type,
-                    user_id=platform.user_id # Inherit user_id from platform
+                    platform_id=platform.id, source_account_type=account_type
                 )
                 db.session.add(new_asset)
                 added_count += 1
@@ -85,7 +100,9 @@ def sync_platform_balances(platform: InvestmentPlatform):
         platform.last_sync_status = status_msg
         platform.last_synced_at = datetime.now(timezone.utc)
         db.session.commit()
-        current_app.logger.info(f"[BG_SYNC] Balance sync for '{platform.name}' successful. {status_msg}")
+
+        total_time = time.time() - start_time
+        current_app.logger.info(f"[SYNC] Синхронизация {platform.name} завершена за {total_time:.2f} сек. {status_msg}")
         return True, status_msg
 
     except Exception as e:
@@ -101,7 +118,13 @@ def sync_platform_transactions(platform: InvestmentPlatform):
     """
     Основная логика для синхронизации транзакций для одной платформы.
     """
-    sync_function = SYNC_TRANSACTIONS_DISPATCHER.get(platform.name.lower())
+    platform_key = platform.name.lower().replace("2", "").replace(" ", "")
+    sync_function = SYNC_TRANSACTIONS_DISPATCHER.get(platform_key)
+    if not sync_function:
+        for key in SYNC_TRANSACTIONS_DISPATCHER:
+            if platform_key.startswith(key):
+                sync_function = SYNC_TRANSACTIONS_DISPATCHER[key]
+                break
     if not sync_function:
         current_app.logger.warning(f"[BG_SYNC] Нет функции синхронизации транзакций для платформы '{platform.name}'.")
         return False, f"No transaction sync function for {platform.name}"
@@ -114,8 +137,8 @@ def sync_platform_transactions(platform: InvestmentPlatform):
 
         if last_sync and last_sync.tzinfo is None:
             last_sync = last_sync.replace(tzinfo=timezone.utc)
-        # При первой синхронизации (last_sync is None) запрашиваем только за последние 90 дней, чтобы избежать таймаутов.
-        start_time_dt = (last_sync - buffer_timedelta) if last_sync else (end_time_dt - timedelta(days=90))
+        # При первой синхронизации (last_sync is None) запрашиваем за последний год, чтобы захватить больше истории.
+        start_time_dt = (last_sync - buffer_timedelta) if last_sync else (end_time_dt - timedelta(days=365))
 
         fetched_data = sync_function(api_key=api_key, api_secret=api_secret, passphrase=passphrase, start_time_dt=start_time_dt, end_time_dt=end_time_dt, platform=platform)
         existing_tx_ids = {tx.exchange_tx_id for tx in platform.transactions}

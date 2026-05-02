@@ -38,13 +38,13 @@
                         <a class="dropdown-item" href="{{ url_for('main.ui_transactions') }}">Банковские операции</a>
                         <a class="dropdown-item" href="{{ url_for('main.ui_categories') }}">Категории</a>
                         <div class="dropdown-divider"></div>
-                        <a class="dropdown-item" href="{{ url_for('main.ui_debts') }}">Долги и регулярные платежи</a>
+                        <a class="dropdown-item" href="{{ url_for('main.ui_obligations') }}">📋 Обязательства</a>
                         <a class="dropdown-item" href="{{ url_for('main.ui_cashback_rules') }}">Правила кэшбэка</a>
                         <div class="dropdown-divider"></div>
                         <a class="dropdown-item" href="{{ url_for('main.ui_analytics_overview') }}">Аналитика</a>
                     </div>
                 </li>
-                 {% set crypto_endpoints = ['main.ui_investment_platforms', 'main.ui_investment_platform_detail', 'main.ui_add_investment_platform_form', 'main.ui_edit_investment_platform_form', 'main.ui_crypto_assets', 'main.ui_crypto_transactions', 'main.ui_crypto_news'] %}
+                 {% set crypto_endpoints = ['main.ui_investment_platforms', 'main.ui_investment_platform_detail', 'main.ui_add_investment_platform_form', 'main.ui_edit_investment_platform_form', 'main.ui_crypto_assets', 'main.ui_crypto_transactions', 'main.ui_crypto_news', 'main.ui_crypto_futures'] %}
                 <li class="nav-item dropdown {% if request.endpoint in crypto_endpoints %}active{% endif %}">
                     <a class="nav-link dropdown-toggle" href="#" id="cryptoDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                         Криптовалюты
@@ -53,6 +53,7 @@
                         <a class="dropdown-item" href="{{ url_for('main.ui_investment_platforms') }}">Биржи/Платформы</a>
                         <a class="dropdown-item" href="{{ url_for('main.ui_crypto_assets') }}">Активы</a>
                         <a class="dropdown-item" href="{{ url_for('main.ui_crypto_transactions') }}">История операций</a>
+                        <a class="dropdown-item" href="{{ url_for('main.ui_crypto_futures') }}">Фьючерсы</a>
                         <div class="dropdown-divider"></div>
                         <a class="dropdown-item" href="{{ url_for('main.ui_crypto_news') }}">Новости</a>
                     </div>
@@ -80,6 +81,27 @@
             {% endif %}
             <ul class="navbar-nav ml-auto">
                 {% if current_user.is_authenticated %}
+                    <!-- Notifications Bell -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="notificationDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            <i class="bi bi-bell"></i>
+                            <span id="notification-badge" class="badge badge-danger" style="display: none;">0</span>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-right" aria-labelledby="notificationDropdown" style="min-width: 350px; max-height: 400px; overflow-y: auto;">
+                            <div class="dropdown-header d-flex justify-content-between align-items-center">
+                                <span>Уведомления</span>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="markAllNotificationsAsRead()">Прочитать все</button>
+                            </div>
+                            <div id="notifications-list" class="notifications-list">
+                                <div class="dropdown-item text-center text-muted">
+                                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                    Загрузка...
+                                </div>
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-center" href="/notifications">Все уведомления</a>
+                        </div>
+                    </li>
                     <li class="nav-item">
                         <span class="nav-link">Привет, {{ current_user.username }}!</span>
                     </li>
@@ -117,6 +139,72 @@
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-Fy6S3B9q64WdZWQUiU+q4/2Lc9npb8tCaSX9FK7E8HnRr0Jz8D6OP9dO5Vg3Q9ct" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
+    {% if current_user.is_authenticated %}
+    <script>
+    // Уведомления
+    let notificationsChecked = false;
+
+    function loadNotifications() {
+        fetch('/api/notifications/unread')
+            .then(response => response.json())
+            .then(data => {
+                const badge = document.getElementById('notification-badge');
+                const list = document.getElementById('notifications-list');
+
+                if (data.count > 0) {
+                    badge.textContent = data.count > 99 ? '99+' : data.count;
+                    badge.style.display = 'inline';
+                } else {
+                    badge.style.display = 'none';
+                }
+
+                if (data.notifications.length === 0) {
+                    list.innerHTML = '<div class="dropdown-item text-center text-muted">Нет непрочитанных уведомлений</div>';
+                } else {
+                    list.innerHTML = data.notifications.map(notif => `
+                        <a href="${notif.link || '#'}" class="dropdown-item ${notif.type === 'debt_overdue' ? 'text-danger' : ''}" onclick="markAsRead(${notif.id}); return false;">
+                            <div class="d-flex justify-content-between">
+                                <strong>${notif.title}</strong>
+                                <small class="text-muted">${notif.created_at}</small>
+                            </div>
+                            <div class="small">${notif.message}</div>
+                        </a>
+                    `).join('');
+                }
+            })
+            .catch(error => console.error('Error loading notifications:', error));
+    }
+
+    function markAsRead(notificationId) {
+        fetch(`/api/notifications/${notificationId}/read`, { method: 'POST' })
+            .then(() => loadNotifications());
+    }
+
+    function markAllNotificationsAsRead() {
+        fetch('/api/notifications/read-all', { method: 'POST' })
+            .then(() => loadNotifications());
+    }
+
+    // Загружаем уведомления при открытии dropdown
+    document.getElementById('notificationDropdown').addEventListener('click', function() {
+        if (!notificationsChecked) {
+            loadNotifications();
+            notificationsChecked = true;
+        }
+    });
+
+    // Периодически обновляем счётчик (каждые 5 минут)
+    setInterval(() => {
+        loadNotifications();
+    }, 5 * 60 * 1000);
+
+    // Загружаем при загрузке страницы для счётчика
+    loadNotifications();
+    </script>
+    {% endif %}
+
     {% block scripts %}{% endblock %}
 </body>
 </html>

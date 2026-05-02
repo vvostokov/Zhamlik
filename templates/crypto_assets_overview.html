@@ -16,6 +16,16 @@
             </form>
         </div>
     </div>
+    {% if loading %}
+    <div class="alert alert-info d-flex justify-content-between align-items-center" id="dataLoadingAlert">
+        <div>
+            <i class="fas fa-spinner fa-spin mr-2"></i>
+            Загрузка детальных данных графиков и статистики...
+        </div>
+        <button type="button" class="close" onclick="this.parentElement.style.display='none'">&times;</button>
+    </div>
+    {% endif %}
+
 
     <!-- Totals Row -->
     <div class="row">
@@ -346,4 +356,83 @@
         }
     });
     </script>
+    {% if loading %}
+    <script>
+    // Load detailed data after page renders
+    document.addEventListener("DOMContentLoaded", function() {
+        setTimeout(function() {
+            fetch('/api/crypto-assets-data')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Hide loading indicator
+                        const loadingAlert = document.getElementById('dataLoadingAlert');
+                        if (loadingAlert) loadingAlert.style.display = 'none';
+
+                        // Update charts with real data
+                        updateChartsWithData(data);
+                    } else {
+                        console.error('Error loading data:', data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    const loadingAlert = document.getElementById('dataLoadingAlert');
+                    if (loadingAlert) {
+                        loadingAlert.className = 'alert alert-warning';
+                        loadingAlert.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i>Не удалось загрузить детальные данные. <a href="" class="alert-link">Обновить страницу</a>';
+                    }
+                });
+        }, 100); // Small delay to ensure page is fully rendered
+    });
+
+    function updateChartsWithData(data) {
+        // Update pie chart
+        const ctxPie = document.getElementById('assetDistributionChart');
+        if (ctxPie && data.chart_labels && data.chart_labels.length > 0) {
+            const chart = Chart.getChart(ctxPie);
+            if (chart) {
+                chart.data.labels = data.chart_labels;
+                chart.data.datasets[0].data = data.chart_data;
+                chart.update();
+            }
+        }
+
+        // Update history chart
+        const ctxHistory = document.getElementById('portfolioHistoryChart');
+        if (ctxHistory && data.chart_history_labels && data.chart_history_labels.length > 0) {
+            const chart = Chart.getChart(ctxHistory);
+            if (chart) {
+                chart.data.labels = data.chart_history_labels;
+                chart.data.datasets[0].data = data.chart_history_values;
+                chart.update();
+            }
+        }
+
+        // Update PnL chart
+        const ctxPnl = document.getElementById('pnlBarChart');
+        if (ctxPnl && data.pnl_chart_labels && data.pnl_chart_labels.length > 0) {
+            const chart = Chart.getChart(ctxPnl);
+            if (chart) {
+                chart.data.labels = data.pnl_chart_labels;
+                chart.data.datasets[0].data = data.pnl_chart_data;
+                chart.data.datasets[0].backgroundColor = data.pnl_chart_data.map(v => v >= 0 ? 'rgba(40, 167, 69, 0.7)' : 'rgba(220, 53, 69, 0.7)');
+                chart.data.datasets[0].borderColor = data.pnl_chart_data.map(v => v >= 0 ? 'rgba(40, 167, 69, 1)' : 'rgba(220, 53, 69, 1)');
+                chart.update();
+            }
+        }
+
+        // Update platform chart
+        const ctxPlatform = document.getElementById('platformDistributionChart');
+        if (ctxPlatform && data.platform_pie_labels && data.platform_pie_labels.length > 0) {
+            const chart = Chart.getChart(ctxPlatform);
+            if (chart) {
+                chart.data.labels = data.platform_pie_labels;
+                chart.data.datasets[0].data = data.platform_pie_data;
+                chart.update();
+            }
+        }
+    }
+    </script>
+    {% endif %}
 {% endblock %}

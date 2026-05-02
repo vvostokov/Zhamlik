@@ -62,7 +62,7 @@
                             </td>
                             <td>{{ "%.2f"|format(debt.initial_amount) }}</td>
                             <td>{{ debt.currency }}</td>
-                            <td>{{ debt.created_at.strftime('%d.%m.%Y') }}</td>
+                            <td>{{ debt.created_at.strftime('%d.%m.%Y') if debt.created_at else '-' }}</td>
                             <td>
                                 {% if debt.due_date %}
                                     {{ debt.due_date.strftime('%d.%m.%Y') }}

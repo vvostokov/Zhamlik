@@ -139,12 +139,12 @@ def index():
             value_str = f"+{tx.amount:,.2f}".replace(',', ' ') + f" {tx.account_ref.currency}"
             is_positive = True
         elif tx.transaction_type == 'transfer':
-            desc = f"Перевод на {tx.to_account_ref.name}"
+            desc = f"Перевод на {tx.to_account_ref.name if tx.to_account_ref else 'счет'}"
             value_str = f"-{tx.amount:,.2f}".replace(',', ' ') + f" {tx.account_ref.currency}"
             is_positive = False
         elif tx.transaction_type == 'exchange':
-            desc = f"Обмен {tx.account_ref.currency} -> {tx.to_account_ref.currency}"
-            value_str = f"+{tx.to_amount:,.2f}".replace(',', ' ') + f" {tx.to_account_ref.currency}"
+            desc = f"Обмен {tx.account_ref.currency} -> {tx.to_account_ref.currency if tx.to_account_ref else '?'}"
+            value_str = f"+{tx.to_amount:,.2f}".replace(',', ' ') + f" {tx.to_account_ref.currency if tx.to_account_ref else '?'}"
             is_positive = True
         
         combined_txs.append({

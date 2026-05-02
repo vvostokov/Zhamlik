@@ -11,6 +11,8 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(64), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=True)
     password_hash = db.Column(db.String(256))
+    reset_token = db.Column(db.String(64), nullable=True)
+    reset_token_expires = db.Column(db.DateTime, nullable=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -158,7 +160,8 @@ class Transaction(db.Model):
     asset2_amount = db.Column(db.Numeric(36, 18))
     fee_amount = db.Column(db.Numeric(36, 18))
     fee_currency = db.Column(db.String(32))
-    execution_price = db.Column(db.Numeric(36, 18)) # Новое поле для цены исполнения сделки
+    execution_price = db.Column(db.Numeric(36, 18)) # Цена исполнения сделки
+    realized_pnl = db.Column(db.Numeric(36, 18))  # Реализованный P&L (для фьючерсов)
     description = db.Column(db.Text)
     platform_id = db.Column(db.Integer, db.ForeignKey('investment_platform.id'), nullable=False)
     platform = db.relationship('InvestmentPlatform', back_populates='transactions')
@@ -355,8 +358,27 @@ class RecurringPayment(db.Model):
     counterparty = db.Column(db.String(255), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) # To associate with a user, if needed later
+    auto_create_debt = db.Column(db.Boolean, default=False, nullable=False)  # Автоматически создавать долг при наступлении даты платежа
 
     category_ref = db.relationship('Category', backref=db.backref('recurring_payments', lazy='dynamic'))
 
     def __repr__(self):
         return f'<RecurringPayment {self.description} - {self.amount} {self.currency}>'
+
+class Notification(db.Model):
+    """Модель для хранения уведомлений пользователя."""
+    __tablename__ = 'notification'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    type = db.Column(db.String(50), nullable=False)  # 'debt_due', 'debt_overdue', 'payment_due'
+    title = db.Column(db.String(255), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    link = db.Column(db.String(512))  # Ссылка на связанную страницу (например, /debts)
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    sent_email = db.Column(db.Boolean, default=False, nullable=False)  # Отправлено ли на email
+
+    user = db.relationship('User', backref=db.backref('notifications', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<Notification {self.title} for user {self.user_id}>'

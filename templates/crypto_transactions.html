@@ -135,6 +135,9 @@
                     <label for="filter_type" class="form-label">Тип</label>
                     <select name="filter_type" id="filter_type" class="form-control" onchange="this.form.submit()">
                         <option value="all">Все типы</option>
+                        <option value="spot" {% if filter_type == 'spot' %}selected{% endif %}>Spot (спот)</option>
+                        <option value="futures" {% if filter_type == 'futures' %}selected{% endif %}>Фьючерсы</option>
+                        <option value="transfers" {% if filter_type == 'transfers' %}selected{% endif %}>Переводы</option>
                         <option value="buy_sell" {% if filter_type == 'buy_sell' %}selected{% endif %}>Buy&Sell</option>
                         {% for tx_type in unique_transaction_types %}
                         <option value="{{ tx_type }}" {% if filter_type == tx_type %}selected{% endif %}>{{ tx_type|capitalize }}</option>
@@ -189,15 +192,20 @@
                     'sell': 'badge-danger',
                     'deposit': 'badge-info',
                     'withdrawal': 'badge-warning',
-                    'transfer': 'badge-secondary'
+                    'transfer': 'badge-secondary',
+                    'futures_trade': 'badge-primary'
                 } %}
+                {% set raw_side = 'buy' if tx.raw_type and 'BUY' in tx.raw_type.upper() else ('sell' if tx.raw_type and 'SELL' in tx.raw_type.upper() else 'unknown') %}
                 <tr class="transaction-row"
                     data-type="{{ tx.type }}"
+                    data-side="{{ raw_side }}"
                     data-pair="{{ tx.asset1_ticker }}/{{ tx.asset2_ticker or '' }}"
                     data-asset1-amount="{{ tx.asset1_amount|trim_zeros if tx.asset1_amount is not none else '0' }}"
                     data-asset2-amount="{{ tx.asset2_amount|trim_zeros if tx.asset2_amount is not none else '0' }}"
                     data-asset1-ticker="{{ tx.asset1_ticker }}"
-                    data-asset2-ticker="{{ tx.asset2_ticker or '' }}">
+                    data-asset2-ticker="{{ tx.asset2_ticker or '' }}"
+                    data-fee-amount="{{ tx.fee_amount|trim_zeros if tx.fee_amount is not none else '0' }}"
+                    data-realized-pnl="{{ tx.realized_pnl|trim_zeros if tx.realized_pnl is not none else '0' }}">
                     <td><input type="checkbox" class="tx-selector" name="transaction_ids" value="{{ tx.id }}"></td>
                     <td data-label="Дата">{{ tx.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
                     <td data-label="Платформа"><a href="{{ url_for('main.ui_investment_platform_detail', platform_id=tx.platform.id) }}">{{ tx.platform.name }}</a></td>
@@ -241,41 +249,41 @@ document.addEventListener('DOMContentLoaded', function() {
     const selectAllCheckbox = document.getElementById('select-all');
     const summaryContainer = document.getElementById('selection-summary');
     const summaryPanel = document.getElementById('selection-summary-container');
-    const filterControls = document.querySelectorAll('#filter_type, #filter_platform_id, #filter_asset');
-    const tableBody = document.querySelector('.table tbody');
+    const tableBody = document.querySelector('tbody');
+    const filterControls = document.querySelectorAll('#filter_platform_id, #filter_type, #filter_asset, #start_date, #end_date');
 
-    // --- Local Storage Functions ---
+    // --- Utility Functions ---
     function getSelectedIds() {
-        // ИСПРАВЛЕНО: Добавлена обработка ошибок при чтении данных из localStorage.
-        // Если в хранилище окажутся некорректные данные (например, от старой версии кода),
-        // это приводило к ошибке JavaScript, и вся логика переставала работать.
-        // Теперь, в случае ошибки, хранилище будет очищено, и работа продолжится.
-        try {
-            return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
-        } catch (e) {
-            console.error("Ошибка чтения ID из localStorage, хранилище будет очищено:", e);
-            localStorage.removeItem(STORAGE_KEY);
-            return new Set();
-        }
+        const stored = localStorage.getItem(STORAGE_KEY);
+        return stored ? new Set(JSON.parse(stored)) : new Set();
     }
 
-    function saveSelectedIds(idsSet) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(idsSet)));
+    function saveSelectedIds(ids) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]));
     }
 
-    // --- Summary Panel Logic ---
-    function formatNumber(num, maxDecimals = 8) {
-        if (isNaN(num) || num === null) return '0';
-        if (Math.abs(num) < 1e-6) return Number(num).toExponential(4);
-        const fixed = Number(num).toFixed(maxDecimals);
-        const parts = fixed.replace(/\.?0+$/, '').split('.');
-        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-        return parts.join('.');
+    function formatNumber(num, decimals = 4) {
+        if (num === null || num === undefined || isNaN(num)) return '0';
+        const s = num.toFixed(decimals);
+        return s.replace(/\.?0+$/, '');
+    }
+
+    function formatPercent(value) {
+        if (value === null || value === undefined || isNaN(value)) return '-';
+        const sign = value > 0 ? '+' : '';
+        return sign + (value * 100).toFixed(2) + '%';
+    }
+
+    function parseDate(dateStr) {
+        if (!dateStr) return null;
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return null;
+        return new Date(parts[0], parts[1] - 1, parts[2]);
     }
 
     function updateSummary() {
+        // Get all selected checkboxes
         const selectedIds = getSelectedIds();
-        // ИСПРАВЛЕНО: Получаем актуальный список чекбоксов со всей страницы
         const selectedCheckboxesOnPage = Array.from(document.querySelectorAll('.tx-selector')).filter(cb => cb.checked);
 
         if (selectedIds.size === 0) {
@@ -283,32 +291,99 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const summaryData = {};
+        const summaryData = {}; // For spot trades
+        const futuresData = {}; // For futures trades
+        
         selectedCheckboxesOnPage.forEach(cb => {
             const row = cb.closest('.transaction-row');
             const type = row.dataset.type;
-            if (type !== 'buy' && type !== 'sell') return;
-
             const pair = row.dataset.pair;
+            
+            // Handle futures trades - group by pair and side (buy/sell)
+            if (type === 'futures_trade') {
+                const side = row.dataset.side || 'unknown';
+                const volume = parseFloat(row.dataset.asset1Amount) || 0;
+                const value = parseFloat(row.dataset.asset2Amount) || 0;
+                const fee = parseFloat(row.dataset.feeAmount || '0') || 0;
+                const asset1Ticker = row.dataset.asset1Ticker;
+                const asset2Ticker = row.dataset.asset2Ticker;
+                
+                if (!futuresData[pair]) futuresData[pair] = {};
+                if (!futuresData[pair][side]) {
+                    futuresData[pair][side] = {
+                        totalVolume: 0, totalValue: 0, totalFees: 0, totalPnl: 0, count: 0,
+                        asset1Ticker: asset1Ticker, asset2Ticker: asset2Ticker
+                    };
+                }
+                const realizedPnl = parseFloat(row.dataset.realizedPnl) || 0;
+                futuresData[pair][side].totalVolume += volume;
+                futuresData[pair][side].totalValue += value;
+                futuresData[pair][side].totalFees += fee;
+                futuresData[pair][side].totalPnl += realizedPnl;
+                futuresData[pair][side].count += 1;
+                return;
+            }
+            
+            // Handle spot trades - include buy, sell, spot_trade
+            if (type !== 'buy' && type !== 'sell' && type !== 'spot_trade') return;
+            const spotType = type === 'spot_trade' ? 'trade' : type;
+
             const asset1Amount = parseFloat(row.dataset.asset1Amount);
             const asset2Amount = parseFloat(row.dataset.asset2Amount);
             const asset1Ticker = row.dataset.asset1Ticker;
             const asset2Ticker = row.dataset.asset2Ticker;
 
             if (!summaryData[pair]) summaryData[pair] = {};
-            if (!summaryData[pair][type]) {
-                summaryData[pair][type] = {
+            if (!summaryData[pair][spotType]) {
+                summaryData[pair][spotType] = {
                     totalAsset1: 0, totalAsset2: 0, count: 0,
                     asset1Ticker: asset1Ticker, asset2Ticker: asset2Ticker
                 };
             }
-            summaryData[pair][type].totalAsset1 += asset1Amount;
-            summaryData[pair][type].totalAsset2 += asset2Amount;
-            summaryData[pair][type].count += 1;
+            summaryData[pair][spotType].totalAsset1 += asset1Amount;
+            summaryData[pair][spotType].totalAsset2 += asset2Amount;
+            summaryData[pair][spotType].count += 1;
         });
 
         let summaryHtml = `<div class="p-2"><strong>Всего выбрано: ${selectedIds.size}</strong> (на этой странице: ${selectedCheckboxesOnPage.length}). Сводка ниже посчитана только для выбранных на <strong>текущей</strong> странице.</div>`;
 
+        // Futures summary (grouped by pair and buy/sell)
+        if (Object.keys(futuresData).length > 0) {
+            summaryHtml += `
+                <table class="table table-sm table-bordered mb-3 responsive-summary-table">
+                    <thead class="thead-light">
+                        <tr>
+                            <th>Тип</th><th>Пара</th><th>Сделок</th><th>Объем</th><th>Стоимость</th><th>P&L (USDT)</th><th>P&L %</th><th>Комиссия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            for (const pair in futuresData) {
+                for (const side in futuresData[pair]) {
+                    const data = futuresData[pair][side];
+                    const sideClass = side === 'buy' ? 'text-success' : (side === 'sell' ? 'text-danger' : 'text-muted');
+                    const sideText = side === 'buy' ? 'Long' : (side === 'sell' ? 'Short' : side);
+                    const pnlPercent = data.totalValue > 0 ? (data.totalPnl / data.totalValue * 100) : 0;
+                    const pnlPercentClass = pnlPercent >= 0 ? 'text-success' : 'text-danger';
+                    const pnlPercentText = pnlPercent >= 0 ? '+' + pnlPercent.toFixed(2) + '%' : pnlPercent.toFixed(2) + '%';
+                    summaryHtml += `
+                        <tr>
+                            <td data-label="Тип" class="${sideClass} font-weight-bold">${sideText}</td>
+                            <td data-label="Пара"><strong>${pair}</strong></td>
+                            <td data-label="Сделок">${data.count}</td>
+                            <td data-label="Объем" class="text-monospace">${formatNumber(data.totalVolume)} ${data.asset1Ticker}</td>
+                            <td data-label="Стоимость" class="text-monospace">${formatNumber(data.totalValue, 2)} ${data.asset2Ticker}</td>
+                            <td data-label="P&L (USDT)" class="text-monospace ${data.totalPnl >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(data.totalPnl, 2)} ${data.asset2Ticker}</td>
+                            <td data-label="P&L %" class="text-monospace ${pnlPercentClass} font-weight-bold">${pnlPercentText}</td>
+                            <td data-label="Комиссия" class="text-monospace">${formatNumber(data.totalFees, 4)} ${data.asset2Ticker}</td>
+                        </tr>
+                    `;
+                }
+            }
+            summaryHtml += '</tbody></table>';
+        }
+
+        // Spot summary
         if (Object.keys(summaryData).length > 0) {
             summaryHtml += `
                 <table class="table table-sm table-bordered mb-0 responsive-summary-table">
@@ -323,8 +398,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 for (const type in summaryData[pair]) {
                     const data = summaryData[pair][type];
                     const avgPrice = data.totalAsset1 > 0 ? data.totalAsset2 / data.totalAsset1 : 0;
-                    const typeClass = type === 'buy' ? 'text-success' : 'text-danger';
-                    const typeText = type === 'buy' ? 'Покупка' : 'Продажа';
+                    const typeClass = type === 'buy' ? 'text-success' : (type === 'sell' ? 'text-danger' : 'text-info');
+                    const typeText = type === 'buy' ? 'Покупка' : (type === 'sell' ? 'Продажа' : 'Trade');
                     summaryHtml += `
                         <tr>
                             <td data-label="Тип" class="${typeClass} font-weight-bold">${typeText}</td>

@@ -53,16 +53,27 @@
         <div class="col-lg-6">
             <div class="card shadow-sm">
                 <div class="card-header bg-danger text-white">
-                    <h5 class="mb-0">Ближайшие Погашения Долгов (7 дней)</h5>
+                    <h5 class="mb-0">Ближайшие Погашения Долгов (7 дней) <small class="text-muted">включая просроченные</small></h5>
                 </div>
                 <ul class="list-group list-group-flush">
                     {% for debt in upcoming_debts %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <li class="list-group-item d-flex justify-content-between align-items-center {% if debt.due_date < today %}list-group-item-warning{% endif %}">
                         <div>
                             <strong>{{ debt.counterparty }}</strong>
+                            {% if debt.due_date < today %}
+                            <small class="badge bg-danger ms-2">ПРОСРОЧЕН</small>
+                            {% endif %}
                             <small class="text-muted"> ({{ debt.due_date.strftime('%d.%m') }})</small>
                         </div>
-                        <span class="text-danger">{{ "%.2f" % (debt.initial_amount - debt.repaid_amount) }} {{ debt.currency }}</span>
+                        {% if debt.debt_type == 'i_owe' %}
+                        <span class="text-danger fw-bold">
+                            - {{ "%.2f" % (debt.initial_amount - debt.repaid_amount) }} {{ debt.currency }}
+                        </span>
+                        {% else %}
+                        <span class="text-success fw-bold">
+                            + {{ "%.2f" % (debt.initial_amount - debt.repaid_amount) }} {{ debt.currency }}
+                        </span>
+                        {% endif %}
                     </li>
                     {% else %}
                     <li class="list-group-item text-muted">Нет предстоящих долгов.</li>
@@ -119,7 +130,7 @@
 
     <!-- Tabs Content -->
     <div class="tab-content mt-3" id="debtsTabsContent">
-        
+
         <!-- Tab 1: Я должен (I Owe) -->
         <div class="tab-pane fade show active" id="i-owe" role="tabpanel" aria-labelledby="i-owe-tab">
             <h4>Мои активные долги</h4>
@@ -148,7 +159,7 @@
 
         <!-- Tab 3: Регулярные платежи (Recurring Payments) -->
         <div class="tab-pane fade" id="recurring" role="tabpanel" aria-labelledby="recurring-tab">
-            <h4>Регулярные платежи</h4>            
+            <h4>Регулярные платежи</h4>
             <button type="button" class="btn btn-sm btn-primary mb-3" data-toggle="modal" data-target="#addRecurringPaymentModal">
                 Добавить регулярный платеж
             </button>
@@ -247,6 +258,15 @@
                                     <label for="currency">Валюта</label>
                                     <input type="text" class="form-control" id="currency" name="currency" value="RUB" required>
                                 </div>
+                                <div class="form-group">
+                                    <div class="form-check">
+                                        <input type="checkbox" class="form-check-input" id="auto_create_debt" name="auto_create_debt">
+                                        <label class="form-check-label" for="auto_create_debt">
+                                            <strong>Автоматически создавать долг</strong><br>
+                                            <small class="text-muted">При создании платежа будет создан долг на указанную дату. В дальнейшем при наступлении даты платежа автоматически создаются новые долги</small>
+                                        </label>
+                                    </div>
+                                </div>
                                 <button type="submit" class="btn btn-primary">Сохранить</button>
                             </form>
                         </div>
@@ -258,21 +278,63 @@
 
         <!-- Tab 4: Контрагенты (Counterparties) -->
         <div class="tab-pane fade" id="counterparties" role="tabpanel" aria-labelledby="counterparties-tab">
-            <h4>Баланс по контрагентам</h4>
+            <h4>Контрагенты</h4>
             <p class="text-muted">Положительный баланс: Вам должны. Отрицательный баланс: Вы должны.</p>
+
+            <!-- Фильтры -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label for="filterCounterparty">Поиск по имени</label>
+                            <input type="text" class="form-control" id="filterCounterparty" placeholder="Введите имя контрагента...">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="filterMinAmount">Мин. сумма</label>
+                            <input type="number" class="form-control" id="filterMinAmount" placeholder="0">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="filterMaxAmount">Макс. сумма</label>
+                            <input type="number" class="form-control" id="filterMaxAmount" placeholder="Любая">
+                        </div>
+                        <div class="col-md-2">
+                            <label for="filterType">Тип</label>
+                            <select class="form-control" id="filterType">
+                                <option value="all">Все</option>
+                                <option value="i_owe">Я должен</option>
+                                <option value="owed_to_me">Мне должны</option>
+                                <option value="none">Погашены</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-12">
+                            <button class="btn btn-secondary btn-sm" onclick="resetCounterpartyFilters()">
+                                <i class="fas fa-times"></i> Сбросить фильтры
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Таблица контрагентов -->
             <div class="table-responsive">
-                <table class="table table-hover">
+                <table class="table table-hover" id="counterpartiesTable">
                     <thead>
                         <tr>
                             <th>Контрагент</th>
                             <th class="text-right">Баланс</th>
                             <th>Валюта</th>
+                            <th>Тип</th>
                             <th>Действия</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for item in counterparty_balances %}
-                        <tr>
+                        {% for item in all_counterparties %}
+                        <tr class="counterparty-row"
+                            data-counterparty="{{ item.counterparty }}"
+                            data-balance="{{ item.balance }}"
+                            data-type="{{ item.type }}">
                             <td><strong>{{ item.counterparty }}</strong></td>
                             <td class="text-right">
                                 <strong class="text-{{ 'danger' if item.balance < 0 else 'success' }}">
@@ -280,25 +342,112 @@
                                 </strong>
                             </td>
                             <td>{{ item.currency }}</td>
-                             <td>
-                                 <a href="{{ url_for('main.ui_counterparty_history', counterparty=item.counterparty) }}" class="btn btn-sm btn-info">История</a>
-                                 {% if item.can_net %}
-                                 <a href="{{ url_for('main.ui_net_debt', counterparty=item.counterparty, currency=item.currency) }}" class="btn btn-sm btn-warning" onclick="return confirm('Вы уверены, что хотите выполнить автоматический взаимозачет всех активных долгов с контрагентом {{ item.counterparty }} в валюте {{ item.currency }}?');">
-                                     Взаимозачет
-                                 </a>
-                                 {% endif %}
-                             </td>
+                            <td>
+                                {% if item.type == 'both' %}
+                                    <span class="badge badge-info">Оба</span>
+                                {% elif item.type == 'i_owe' %}
+                                    <span class="badge badge-danger">Я должен</span>
+                                {% elif item.type == 'owed_to_me' %}
+                                    <span class="badge badge-success">Мне должны</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">Погашен</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ url_for('main.ui_counterparty_history', counterparty=item.counterparty) }}" class="btn btn-sm btn-info" title="История">
+                                    <i class="fas fa-history"></i>
+                                </a>
+                                {% if item.can_net %}
+                                <a href="{{ url_for('main.ui_net_debt', counterparty=item.counterparty, currency=item.currency) }}" class="btn btn-sm btn-warning" title="Взаимозачет" onclick="return confirm('Вы уверены, что хотите выполнить автоматический взаимозачет всех активных долгов с контрагентом {{ item.counterparty }} в валюте {{ item.currency }}?');">
+                                    <i class="fas fa-exchange-alt"></i>
+                                </a>
+                                {% endif %}
+                            </td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="4" class="text-center text-muted">Нет активных балансов по контрагентам.</td>
+                            <td colspan="5" class="text-center text-muted">Нет контрагентов.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
+
+            <!-- Информация о фильтрации -->
+            <div class="mt-3">
+                <small class="text-muted" id="filterInfo">Показано всех контрагентов: <span id="totalCount">{{ all_counterparties|length }}</span></small>
+            </div>
         </div>
 
     </div>
 </div>
+
+<script>
+// Фильтрация контрагентов
+document.addEventListener('DOMContentLoaded', function() {
+    const filterName = document.getElementById('filterCounterparty');
+    const filterMin = document.getElementById('filterMinAmount');
+    const filterMax = document.getElementById('filterMaxAmount');
+    const filterType = document.getElementById('filterType');
+    const rows = document.querySelectorAll('.counterparty-row');
+    const filterInfo = document.getElementById('filterInfo');
+    const totalCount = document.getElementById('totalCount');
+
+    function applyFilters() {
+        const nameValue = filterName.value.toLowerCase();
+        const minValue = parseFloat(filterMin.value) || 0;
+        const maxValue = parseFloat(filterMax.value) || Infinity;
+        const typeValue = filterType.value;
+
+        let visibleCount = 0;
+
+        rows.forEach(row => {
+            const counterparty = row.dataset.counterparty.toLowerCase();
+            const balance = Math.abs(parseFloat(row.dataset.balance));
+            const type = row.dataset.type;
+
+            let matches = true;
+
+            // Фильтр по имени
+            if (nameValue && !counterparty.includes(nameValue)) {
+                matches = false;
+            }
+
+            // Фильтр по сумме
+            if (balance < minValue || balance > maxValue) {
+                matches = false;
+            }
+
+            // Фильтр по типу
+            if (typeValue !== 'all' && type !== typeValue && type !== 'both') {
+                matches = false;
+            }
+
+            if (matches) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+
+        filterInfo.textContent = `Показано: ${visibleCount} из ${rows.length}`;
+    }
+
+    // Привязка событий
+    filterName.addEventListener('input', applyFilters);
+    filterMin.addEventListener('input', applyFilters);
+    filterMax.addEventListener('input', applyFilters);
+    filterType.addEventListener('change', applyFilters);
+
+    // Глобальная функция сброса фильтров
+    window.resetCounterpartyFilters = function() {
+        filterName.value = '';
+        filterMin.value = '';
+        filterMax.value = '';
+        filterType.value = 'all';
+        applyFilters();
+    };
+});
+</script>
 {% endblock %}

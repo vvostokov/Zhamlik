@@ -11,8 +11,11 @@
             <form action="{{ url_for('main.ui_sync_investment_platform', platform_id=platform.id) }}" method="POST" style="display: inline-block;">
                 <button type="submit" class="btn btn-info">Синхр. балансы</button>
             </form>
-            <form action="{{ url_for('main.ui_sync_investment_platform_transactions', platform_id=platform.id) }}" method="POST" style="display: inline-block;">
+            <form action="{{ url_for('main.ui_sync_investment_platform_transactions', platform_id=platform.id) }}" method="POST" style="display: inline-block;" onsubmit="return confirm('Синхронизация может занять много времени. Продолжить?');">
                  <button type="submit" class="btn btn-secondary">Синхр. транзакции</button>
+            </form>
+            <form action="{{ url_for('main.ui_sync_investment_platform_transactions_background', platform_id=platform.id) }}" method="POST" style="display: inline-block;">
+                 <button type="submit" class="btn btn-dark" title="Синхронизация в фоновом режиме с уведомлением на email">🔄 Фоновая синхронизация</button>
             </form>
             <form action="{{ url_for('main.ui_delete_investment_platform', platform_id=platform.id) }}" method="POST" style="display: inline-block;" onsubmit="return confirm('Вы уверены, что хотите удалить платформу \'{{ platform.name }}\' и все связанные с ней данные?');">
                 <button type="submit" class="btn btn-danger">Удалить</button>

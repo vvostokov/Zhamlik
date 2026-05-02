@@ -25,3 +25,26 @@ app.db
 .idea/
 .vscode/
 *.swp
+
+# Тестовые файлы
+test_*.py
+
+# Резервные копии
+*.bak
+*.backup*
+*.bak2
+*.bak3
+*.bak4
+
+# Бинарные файлы
+static/apks/
+*.apk
+
+# Secrets
+.fernet_key
+*.key
+credentials.json
+
+# Временные файлы
+*.tmp
+*.log

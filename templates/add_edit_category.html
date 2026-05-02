@@ -4,31 +4,132 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h2>{{ title }}</h2>
-    <hr>
-    <form method="POST" autocomplete="off">
-        <div class="form-group mb-3">
-            <label for="name">Название категории</label>
-            <input type="text" class="form-control" id="name" name="name" value="{{ category.name if category else '' }}" required>
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title mb-4">{{ title }}</h2>
+
+                    {% if parent_id %}
+                    <div class="alert alert-info mb-3">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Создание подкатегории для категории:
+                        <strong>{{ parent_category_name }}</strong>
+                    </div>
+                    {% endif %}
+
+                    <form method="POST" autocomplete="off">
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Название категории</label>
+                            <input type="text" class="form-control" id="name" name="name"
+                                   value="{{ category.name if category else '' }}" required
+                                   placeholder="Например: Продукты">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="type" class="form-label">Тип категории</label>
+                            <select class="form-control" id="type" name="type" required {% if parent_id %}disabled{% endif %}>
+                                <option value="expense" {% if category and category.type == 'expense' or not category and (default_type == 'expense' or not parent_id) %}selected{% endif %}>
+                                    Расход
+                                </option>
+                                <option value="income" {% if category and category.type == 'income' or not category and default_type == 'income' %}selected{% endif %}>
+                                    Доход
+                                </option>
+                            </select>
+                            {% if parent_id %}
+                            <input type="hidden" name="type" value="{{ default_type }}">
+                            <small class="form-text text-muted">
+                                <i class="fas fa-lock me-1"></i>Тип унаследован от родительской категории
+                            </small>
+                            {% endif %}
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="parent_id" class="form-label">Родительская категория</label>
+                            <select class="form-control" id="parent_id" name="parent_id"
+                                    {% if parent_id %}disabled{% endif %}>
+                                <option value="">-- Основная категория (без родителя) --</option>
+                                {% for parent_cat in parent_categories %}
+                                <option value="{{ parent_cat.id }}"
+                                        {% if category and category.parent_id == parent_cat.id or parent_id|int == parent_cat.id %}selected{% endif %}
+                                        data-type="{{ parent_cat.type }}">
+                                    {{ parent_cat.name }}
+                                    <small class="text-muted">({{ 'Расход' if parent_cat.type == 'expense' else 'Доход' }})</small>
+                                </option>
+                                {% endfor %}
+                            </select>
+                            {% if parent_id %}
+                            <input type="hidden" name="parent_id" value="{{ parent_id }}">
+                            {% endif %}
+                            <small class="form-text text-muted">
+                                Если выбрана родительская категория, текущая станет подкатегорией
+                            </small>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary flex-grow-1">
+                                <i class="fas fa-save me-1"></i>Сохранить
+                            </button>
+                            <a href="{{ url_for('main.ui_categories') }}" class="btn btn-secondary">
+                                <i class="fas fa-times me-1"></i>Отмена
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            {% if not category %}
+            <div class="card mt-3">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="fas fa-lightbulb text-warning me-2"></i>Совет
+                    </h5>
+                    <p class="card-text mb-0">
+                        Создавайте категории иерархически для лучшей организации:
+                    </p>
+                    <ul class="mb-0">
+                        <li><strong>Основная категория:</strong> Продукты</li>
+                        <li><em>Подкатегории:</em> Молочные продукты, Мясо, Овощи и т.д.</li>
+                    </ul>
+                </div>
+            </div>
+            {% endif %}
         </div>
-        <div class="form-group mb-3">
-            <label for="type">Тип категории</label>
-            <select class="form-control" id="type" name="type" required>
-                <option value="expense" {% if category and category.type == 'expense' %}selected{% endif %}>Расход</option>
-                <option value="income" {% if category and category.type == 'income' %}selected{% endif %}>Доход</option>
-            </select>
-        </div>
-        <div class="form-group mb-3">
-            <label for="parent_id">Родительская категория (оставьте пустым для создания основной категории)</label>
-            <select class="form-control" id="parent_id" name="parent_id">
-                <option value="">-- Нет --</option>
-                {% for parent_cat in parent_categories %}
-                <option value="{{ parent_cat.id }}" {% if category and category.parent_id == parent_cat.id %}selected{% endif %}>{{ parent_cat.name }} ({{ parent_cat.type }})</option>
-                {% endfor %}
-            </select>
-        </div>
-        <button type="submit" class="btn btn-primary">Сохранить</button>
-        <a href="{{ url_for('main.ui_categories') }}" class="btn btn-secondary">Отмена</a>
-    </form>
+    </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const typeSelect = document.getElementById('type');
+    const parentSelect = document.getElementById('parent_id');
+
+    // Функция для фильтрации родительских категорий по типу
+    function filterParentCategories() {
+        const selectedType = typeSelect.value;
+
+        Array.from(parentSelect.options).forEach(option => {
+            if (option.value === '') return; // Пропускаем опцию "Нет"
+
+            const optionType = option.dataset.type;
+            if (optionType && optionType !== selectedType) {
+                option.style.display = 'none';
+            } else {
+                option.style.display = '';
+            }
+        });
+
+        // Если текущий выбор скрыт, сбрасываем на "Нет"
+        const selectedOption = parentSelect.options[parentSelect.selectedIndex];
+        if (selectedOption.value !== '' && selectedOption.style.display === 'none') {
+            parentSelect.value = '';
+        }
+    }
+
+    // Запускаем фильтрацию при изменении типа
+    typeSelect.addEventListener('change', filterParentCategories);
+
+    // Запускаем фильтрацию при загрузке
+    filterParentCategories();
+});
+</script>
 {% endblock %}

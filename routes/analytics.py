@@ -15,52 +15,144 @@ from flask_login import login_required, current_user
 
 @main_bp.route('/analytics')
 @login_required
-def ui_analytics_overview():    
+def ui_analytics_overview():
+    # Получаем фильтры
     start_date_str = request.args.get('start_date')
     end_date_str = request.args.get('end_date')
-    
-    # Default to last 30 days
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=30)
+    preset = request.args.get('preset', '30d')  # 7d, 30d, 3m, 1y, all
 
+    # Определяем период на основе preset
+    end_date = datetime.now()
+    if preset == '7d':
+        start_date = end_date - timedelta(days=7)
+    elif preset == '30d':
+        start_date = end_date - timedelta(days=30)
+    elif preset == '3m':
+        start_date = end_date - timedelta(days=90)
+    elif preset == '1y':
+        start_date = end_date - timedelta(days=365)
+    elif preset == 'all':
+        # Самая ранняя транзакция
+        first_tx = BankingTransaction.query.join(
+            Account, BankingTransaction.account_id == Account.id
+        ).filter(
+            Account.user_id == current_user.id
+        ).order_by(BankingTransaction.date.asc()).first()
+        start_date = first_tx.date if first_tx else (end_date - timedelta(days=30))
+    else:
+        # Даты из формы
+        preset = None
+
+    # Если указаны конкретные даты, переопределяем preset
     if start_date_str:
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            preset = None
         except ValueError:
-            pass # Keep default
-            
+            pass
+
     if end_date_str:
         try:
-            # Add 23:59:59 to end date to include the whole day
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            preset = None
         except ValueError:
-            pass # Keep default
+            pass
+
+    # --- 0. Добавим криптовалюты к общей картине ---
+    currency_rates_to_rub = _get_currency_rates()
+    crypto_total_rub = Decimal(0)
+
+    try:
+        from models import InvestmentAsset, InvestmentPlatform
+        crypto_assets = InvestmentAsset.query.join(InvestmentPlatform).filter(
+            InvestmentPlatform.user_id == current_user.id,
+            InvestmentAsset.asset_type == 'crypto',
+            InvestmentAsset.quantity > 0
+        ).all()
+
+        for asset in crypto_assets:
+            if asset.current_price is not None:
+                value_in_rub = asset.quantity * asset.current_price * currency_rates_to_rub.get(asset.currency_of_price or 'USDT', Decimal(1.0))
+                crypto_total_rub += value_in_rub
+    except Exception as e:
+        current_app.logger.error(f"Error fetching crypto assets: {e}")
 
     # --- 1. Рассчитать общий баланс по всем активным банковским счетам ---
-    currency_rates_to_rub = _get_currency_rates()
-
-    # --- 1. Рассчитать общий баланс по всем активным ЛИЧНЫМ банковским счетам ---
-    # Фильтруем только счета, которые НЕ являются внешними
     personal_bank_accounts = Account.query.filter(
         Account.account_type.in_(['bank_account', 'deposit', 'bank_card', 'credit']),
         Account.is_external == False,
         Account.user_id == current_user.id
     ).all()
-    
-    # Получаем внешние счета для отдельной вкладки
+
     external_accounts = Account.query.filter(
         Account.account_type.in_(['bank_account', 'deposit', 'bank_card', 'credit']),
         Account.is_external == True,
         Account.user_id == current_user.id
     ).all()
 
-    total_balance_rub = Decimal(0)
-    for acc in  personal_bank_accounts:
+    bank_balance_rub = Decimal(0)
+    for acc in personal_bank_accounts:
         value_in_rub = acc.balance * currency_rates_to_rub.get(acc.currency, Decimal(1.0))
         if acc.account_type == 'credit':
-            total_balance_rub -= value_in_rub  # Вычесть долг по кредитной карте
+            bank_balance_rub -= value_in_rub
         else:
-            total_balance_rub += value_in_rub  # Добавить активы
+            bank_balance_rub += value_in_rub
+
+    total_balance_rub = bank_balance_rub + crypto_total_rub
+
+    # --- 1.5. Предыдущий период для сравнения ---
+    period_length = (end_date - start_date).days
+    prev_start_date = start_date - timedelta(days=period_length)
+    prev_end_date = start_date - timedelta(seconds=1)
+
+    # Доходы и расходы текущего периода
+    current_period_data = db.session.query(
+        BankingTransaction.transaction_type,
+        func.sum(BankingTransaction.amount)
+    ).join(Account, BankingTransaction.account_id == Account.id).filter(
+        Account.user_id == current_user.id,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
+        BankingTransaction.transaction_type.in_(['income', 'expense'])
+    ).group_by(BankingTransaction.transaction_type).all()
+
+    current_income = next((item[1] for item in current_period_data if item[0] == 'income'), Decimal(0))
+    current_expense = next((item[1] for item in current_period_data if item[0] == 'expense'), Decimal(0))
+
+    # Доходы и расходы предыдущего периода
+    prev_period_data = db.session.query(
+        BankingTransaction.transaction_type,
+        func.sum(BankingTransaction.amount)
+    ).join(Account, BankingTransaction.account_id == Account.id).filter(
+        Account.user_id == current_user.id,
+        BankingTransaction.date >= prev_start_date,
+        BankingTransaction.date <= prev_end_date,
+        BankingTransaction.transaction_type.in_(['income', 'expense'])
+    ).group_by(BankingTransaction.transaction_type).all()
+
+    prev_income = next((item[1] for item in prev_period_data if item[0] == 'income'), Decimal(0))
+    prev_expense = next((item[1] for item in prev_period_data if item[0] == 'expense'), Decimal(0))
+
+    # Вычисляем изменения в процентах
+    income_change_pct = ((current_income - prev_income) / prev_income * 100) if prev_income > 0 else 0
+    expense_change_pct = ((current_expense - prev_expense) / prev_expense * 100) if prev_expense > 0 else 0
+
+    # --- 1.6. Новые метрики ---
+    # Средний чек
+    tx_count = db.session.query(func.count(BankingTransaction.id)).join(
+        Account, BankingTransaction.account_id == Account.id
+    ).filter(
+        Account.user_id == current_user.id,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
+        BankingTransaction.transaction_type == 'expense'
+    ).scalar() or 0
+
+    avg_check = (current_expense / tx_count) if tx_count > 0 else Decimal(0)
+
+    # Частота транзакций в день
+    days_in_period = max(1, (end_date - start_date).days)
+    tx_frequency = tx_count / days_in_period
 
     # Use dynamic start_date instead of hardcoded one_month_ago
     # one_month_ago = datetime.now() - timedelta(days=30) # Removed
@@ -74,6 +166,7 @@ def ui_analytics_overview():
     ).order_by(BankingTransaction.date.desc()).limit(100).all()
 
     # --- 3. Рассчитать расходы по категориям за выбранный период ---
+    # Сначала получим транзакции С категорией
     category_spending = db.session.query(
         Category.name,
         func.sum(BankingTransaction.amount)
@@ -82,18 +175,37 @@ def ui_analytics_overview():
         BankingTransaction.date >= start_date,
         BankingTransaction.date <= end_date,
         BankingTransaction.transaction_type == 'expense'
-    ).group_by(Category.name).order_by(func.sum(BankingTransaction.amount).desc()).limit(10).all()
+    ).group_by(Category.name).all()
 
-    category_labels = [item[0] for item in category_spending]
-    category_data = [float(item[1]) for item in category_spending]
+    # Теперь транзакции БЕЗ категории
+    no_category_spending = db.session.query(
+        func.sum(BankingTransaction.amount)
+    ).join(Account, BankingTransaction.account_id == Account.id).filter(
+        Account.user_id == current_user.id,
+        BankingTransaction.date >= start_date,
+        BankingTransaction.date <= end_date,
+        BankingTransaction.transaction_type == 'expense',
+        BankingTransaction.category_id == None
+    ).scalar() or Decimal(0)
+
+    # Объединим данные
+    category_spending_dict = {item[0]: float(item[1]) for item in category_spending}
+    if no_category_spending > 0:
+        category_spending_dict['Без категории'] = float(no_category_spending)
+
+    # Сортируем и берём топ-10
+    sorted_spending = sorted(category_spending_dict.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    category_labels = [item[0] for item in sorted_spending]
+    category_data = [item[1] for item in sorted_spending]
 
     # Calculate percentages
     total_spending = sum(category_data)
-    
+
     if total_spending and category_data:
-      category_percentages = [round((float(data) / float(total_spending)) * 100, 2) for data in category_data]
+        category_percentages = [round((data / total_spending) * 100, 2) for data in category_data]
     else:
-      category_percentages = [0.0] * len(category_data)
+        category_percentages = [0.0] * len(category_data)
     
     purchase_category_spending = db.session.query(
         Category.name,
@@ -172,23 +284,25 @@ def ui_analytics_overview():
         BankingTransaction.transaction_type.in_(['income', 'expense'])
     ).group_by(BankingTransaction.transaction_type).all()
 
-    income_total = next((item[1] for item in cash_flow_data if item[0] == 'income'), Decimal(0))
-    expense_total = next((item[1] for item in cash_flow_data if item[0] == 'expense'), Decimal(0))
+    # Используем уже вычисленные значения
+    income_total = current_income
+    expense_total = current_expense
     cash_flow_values = [float(income_total), float(expense_total)]
-    
-    # Add net_cash_flow calculation
+
     net_cash_flow = income_total - expense_total
 
     # --- 5. Additional Charts Data Calculation ---
-    
+
     # 5.1 Net Flow Over Time (Dynamic grouping)
     # Determine grouping interval
     delta_days = (end_date - start_date).days
     if delta_days > 60:
-        date_grouping = func.strftime('%Y-%m', BankingTransaction.date)
+        # Группировка по месяцам для PostgreSQL
+        date_grouping = func.to_char(BankingTransaction.date, 'YYYY-MM')
         date_format = '%Y-%m'
     else:
-        date_grouping = func.strftime('%Y-%m-%d', BankingTransaction.date)
+        # Группировка по дням для PostgreSQL
+        date_grouping = func.to_char(BankingTransaction.date, 'YYYY-MM-DD')
         date_format = '%Y-%m-%d'
 
     flow_query = db.session.query(
@@ -289,29 +403,41 @@ def ui_analytics_overview():
 
     return render_template(
         'analytics_overview.html',
-        start_date=start_date.strftime('%Y-%m-%d'),
-        end_date=end_date.strftime('%Y-%m-%d'),
+        start_date=start_date,
+        end_date=end_date,
+        start_date_str=start_date.strftime('%Y-%m-%d'),
+        end_date_str=end_date.strftime('%Y-%m-%d'),
         total_balance_rub=total_balance_rub,
+        bank_balance_rub=bank_balance_rub,
+        crypto_total_rub=crypto_total_rub,
         recent_transactions=recent_transactions,
         category_labels=json.dumps(category_labels),
         category_data=json.dumps(category_data),
         category_percentages=json.dumps(category_percentages),
-        
+
         income_expense_labels=json.dumps(['Доходы', 'Расходы']),
         income_expense_data=json.dumps(cash_flow_values),
-        
+
         net_cash_flow=net_cash_flow,
         total_income=income_total,
         total_expense=expense_total,
-        
+
+        # Новые метрики
+        income_change_pct=round(income_change_pct, 1),
+        expense_change_pct=round(expense_change_pct, 1),
+        avg_check=round(avg_check, 2),
+        tx_count=tx_count,
+        tx_frequency=round(tx_frequency, 1),
+        preset=preset,
+
         purchase_category_labels=json.dumps(purchase_category_labels),
         purchase_category_data=json.dumps(purchase_category_data),
         purchase_category_percentages=json.dumps(purchase_category_percentages),
-        
+
         combined_category_labels=json.dumps(combined_category_labels),
         combined_category_data=json.dumps(combined_category_data),
         combined_category_percentages=json.dumps(combined_category_percentages),
-        
+
         subcategory_labels=json.dumps(subcategory_labels),
         subcategory_data=json.dumps(subcategory_data),
         products_labels=json.dumps(products_labels),
@@ -322,13 +448,13 @@ def ui_analytics_overview():
         flow_over_time_income=json.dumps(flow_over_time_income),
         flow_over_time_expense=json.dumps(flow_over_time_expense),
         flow_over_time_net=json.dumps(flow_over_time_net),
-        
+
         top_expense_account_labels=json.dumps(top_expense_account_labels),
         top_expense_account_data=json.dumps(top_expense_account_data),
-        
+
         top_merchant_labels=json.dumps(top_merchant_labels),
         top_merchant_data=json.dumps(top_merchant_data),
-        
+
         top_income_labels=json.dumps(top_income_labels),
         top_income_data=json.dumps(top_income_data),
 

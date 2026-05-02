@@ -90,9 +90,13 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
     scheduler.init_app(app)
-    scheduler.start()
     login_manager.init_app(app)
     mail.init_app(app)
+
+    # Initialize background jobs with proper app context
+    from background_tasks import init_background_jobs
+    init_background_jobs(scheduler, app)
+    scheduler.start()
 
     # --- Register Jinja Filters ---
     @app.template_filter()

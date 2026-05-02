@@ -1,4 +1,5 @@
 from flask import current_app
+from flask import Flask
 import time
 import json
 
@@ -12,38 +13,79 @@ from extensions import db
 from notification_logic import check_debts_and_create_notifications
 
 
+def init_background_jobs(scheduler, app: Flask):
+    """Initialize background jobs with app context."""
+    
+    def job_wrapper(func):
+        """Wrapper that provides app context for background jobs."""
+        def wrapper(*args, **kwargs):
+            with app.app_context():
+                return func()
+        return wrapper
+    
+    scheduler.add_job(
+        id='job_update_news_cache',
+        func=job_wrapper(update_all_news_in_background),
+        trigger='interval',
+        hours=1
+    )
+    scheduler.add_job(
+        id='job_sync_platforms',
+        func=job_wrapper(sync_all_platforms_in_background),
+        trigger='interval',
+        hours=2
+    )
+    scheduler.add_job(
+        id='job_update_usdt_rub_rate',
+        func=job_wrapper(update_usdt_rub_rate_in_background),
+        trigger='interval',
+        hours=1
+    )
+    scheduler.add_job(
+        id='job_create_debts_from_recurring_payments',
+        func=job_wrapper(create_debts_from_recurring_payments_in_background),
+        trigger='interval',
+        hours=24
+    )
+    scheduler.add_job(
+        id='job_check_notifications',
+        func=job_wrapper(check_notifications_in_background),
+        trigger='interval',
+        hours=1
+    )
+
+
 def update_all_news_in_background():
     """
     Фоновая задача для обновления и кэширования всех новостей.
     Эта функция будет запускаться планировщиком периодически.
     """
-    # flask-apscheduler автоматически предоставляет контекст приложения для фоновых задач.
-    # Явное создание приложения через create_app() здесь не требуется и вызывает ошибку.
-    current_app.logger.info("--- [BG_TASK] Запуск фонового обновления новостей ---")
-    try:
-        # 1. Определяем топ-10 тикеров, как это делает страница новостей.
-        # Нам не нужны сами тренды, только список тикеров для обновления кэша.
-        _, top_10_tickers = get_news_trends_for_portfolio()
+    with current_app.app_context():
+        current_app.logger.info("--- [BG_TASK] Запуск фонового обновления новостей ---")
+        try:
+            # 1. Определяем топ-10 тикеров, как это делает страница новостей.
+            # Нам не нужны сами тренды, только список тикеров для обновления кэша.
+            _, top_10_tickers = get_news_trends_for_portfolio()
 
-        # 2. Обновляем кэш для каждого тикера из топа.
-        if top_10_tickers:
-            for ticker in top_10_tickers:
-                current_app.logger.info(f"--- [BG_TASK] Обновление кэша новостей для: {ticker} ---")
-                get_crypto_news(categories=ticker, limit=30)
+            # 2. Обновляем кэш для каждого тикера из топа.
+            if top_10_tickers:
+                for ticker in top_10_tickers:
+                    current_app.logger.info(f"--- [BG_TASK] Обновление кэша новостей для: {ticker} ---")
+                    get_crypto_news(categories=ticker, limit=30)
 
-        # 3. Обновляем кэш для общих крипто-новостей (используется на главной и странице новостей).
-        current_app.logger.info("--- [BG_TASK] Обновление кэша общих крипто-новостей ---")
-        get_crypto_news(limit=30)  # Для /crypto-news
-        get_crypto_news(limit=5)   # Для /crypto-assets (главная)
+            # 3. Обновляем кэш для общих крипто-новостей (используется на главной и странице новостей).
+            current_app.logger.info("--- [BG_TASK] Обновление кэша общих крипто-новостей ---")
+            get_crypto_news(limit=30)  # Для /crypto-news
+            get_crypto_news(limit=5)   # Для /crypto-assets (главная)
 
-        # 4. Обновляем кэш для новостей фондового рынка.
-        current_app.logger.info("--- [BG_TASK] Обновление кэша новостей фондового рынка ---")
-        get_securities_news(limit=50)
+            # 4. Обновляем кэш для новостей фондового рынка.
+            current_app.logger.info("--- [BG_TASK] Обновление кэша новостей фондового рынка ---")
+            get_securities_news(limit=50)
 
-        current_app.logger.info("--- [BG_TASK] Фоновое обновление новостей завершено успешно. ---")
+            current_app.logger.info("--- [BG_TASK] Фоновое обновление новостей завершено успешно. ---")
 
-    except Exception as e:
-        current_app.logger.error(f"--- [BG_TASK] Ошибка во время фонового обновления новостей: {e}", exc_info=True)
+        except Exception as e:
+            current_app.logger.error(f"--- [BG_TASK] Ошибка во время фонового обновления новостей: {e}", exc_info=True)
 
 
 def sync_all_platforms_in_background():

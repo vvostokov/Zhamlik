@@ -17,10 +17,15 @@ def init_background_jobs(scheduler, app: Flask):
     """Initialize background jobs with app context."""
     
     def job_wrapper(func):
-        """Wrapper that provides app context for background jobs."""
+        """Wrapper that provides app context for background jobs with error handling."""
         def wrapper(*args, **kwargs):
-            with app.app_context():
-                return func()
+            try:
+                with app.app_context():
+                    return func()
+            except Exception as e:
+                with app.app_context():
+                    app.logger.error(f"--- [BG_ERROR] Job {func.__name__}: {e} ---")
+                raise
         return wrapper
     
     # Debug job - runs every 30 seconds to verify scheduler works
@@ -65,11 +70,14 @@ def init_background_jobs(scheduler, app: Flask):
 
 def debug_ping_job():
     """Debug job to verify scheduler is working."""
-    with current_app.app_context():
-        from datetime import datetime
-        with open("/tmp/scheduler_ping.txt", "a") as f:
-            f.write(f"DEBUG {datetime.utcnow().isoformat()}\n")
-        current_app.logger.info("--- [DEBUG] Scheduler ping ---")
+    try:
+        with current_app.app_context():
+            from datetime import datetime
+            with open("/tmp/scheduler_ping.txt", "a") as f:
+                f.write(f"DEBUG {datetime.utcnow().isoformat()}\n")
+            current_app.logger.info("--- [DEBUG] Scheduler ping ---")
+    except Exception as e:
+        current_app.logger.error(f"--- [DEBUG] ERROR: {e} ---")
 
 
 def update_all_news_in_background():

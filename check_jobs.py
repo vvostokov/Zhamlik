@@ -1,18 +1,18 @@
 import sys
 sys.path.insert(0, '/opt/zhamlik')
 
-from app import create_app
-app = create_app()
+from datetime import datetime
+import time
 
-# Find scheduler directly
-from extensions import scheduler
-print(f"Scheduler: {scheduler}")
+# Wait a bit for job to run
+print("Waiting 40 seconds for debug job to execute...")
+time.sleep(40)
 
-jobs = scheduler.get_jobs()
-print(f"\nJobs count: {len(jobs)}")
-for job in jobs:
-    print(f"  - {job.id}: next={job.next_run_time}")
-
-# Trigger debug job via scheduler
-print("\n--- Running debug job via scheduler ---")
-scheduler.run_job('debug_ping')
+# Check if file exists
+import os
+if os.path.exists("/tmp/scheduler_ping.txt"):
+    print("File exists!")
+    with open("/tmp/scheduler_ping.txt") as f:
+        print(f.read())
+else:
+    print("File does NOT exist - job not executed")

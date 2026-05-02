@@ -52,7 +52,14 @@ def create_app():
     app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', 'noreply@zhamlik.local')
 
     # --- Scheduler Configuration ---
-    app.config['SCHEDULER_API_ENABLED'] = True
+    # Use single worker to avoid APScheduler multi-process issues
+    app.config['SCHEDULER_API_ENABLED'] = False  # Disable API for security
+
+    # Force single process execution
+    app.config['SCHEDULER_JOB_DEFAULTS'] = {
+        'coalesce': True,
+        'max_instances': 1
+    }
 
     # --- Initialize Extensions ---
     db.init_app(app)

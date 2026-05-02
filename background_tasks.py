@@ -23,6 +23,14 @@ def init_background_jobs(scheduler, app: Flask):
                 return func()
         return wrapper
     
+    # Debug job - runs every 30 seconds to verify scheduler works
+    scheduler.add_job(
+        id='debug_ping',
+        func=job_wrapper(debug_ping_job),
+        trigger='interval',
+        seconds=30
+    )
+    
     scheduler.add_job(
         id='job_update_news_cache',
         func=job_wrapper(update_all_news_in_background),
@@ -53,6 +61,12 @@ def init_background_jobs(scheduler, app: Flask):
         trigger='interval',
         hours=1
     )
+
+
+def debug_ping_job():
+    """Debug job to verify scheduler is working."""
+    with current_app.app_context():
+        current_app.logger.info("--- [DEBUG] Scheduler ping - jobs working! ---")
 
 
 def update_all_news_in_background():

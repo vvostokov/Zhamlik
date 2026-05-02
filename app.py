@@ -53,38 +53,6 @@ def create_app():
 
     # --- Scheduler Configuration ---
     app.config['SCHEDULER_API_ENABLED'] = True
-    app.config['JOBS'] = [
-        {
-            'id': 'job_update_news_cache',
-            'func': 'background_tasks:update_all_news_in_background',
-            'trigger': 'interval',
-            'hours': 1
-        },
-        {
-            'id': 'job_sync_platforms',
-            'func': 'background_tasks:sync_all_platforms_in_background',
-            'trigger': 'interval',
-            'hours': 2 # Синхронизировать балансы и транзакции каждые 2 часа
-        },
-        {
-            'id': 'job_update_usdt_rub_rate',
-            'func': 'background_tasks:update_usdt_rub_rate_in_background',
-            'trigger': 'interval',
-            'hours': 1 # Обновлять курс каждый час
-        },
-        {
-            'id': 'job_create_debts_from_recurring_payments',
-            'func': 'background_tasks:create_debts_from_recurring_payments_in_background',
-            'trigger': 'interval',
-            'hours': 24 # Проверять и создавать долги каждый день
-        },
-        {
-            'id': 'job_check_notifications',
-            'func': 'background_tasks:check_notifications_in_background',
-            'trigger': 'interval',
-            'hours': 1 # Проверять долги и создавать уведомления каждый час
-        }
-    ]
 
     # --- Initialize Extensions ---
     db.init_app(app)

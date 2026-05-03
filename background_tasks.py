@@ -13,7 +13,7 @@ from extensions import db
 from notification_logic import check_debts_and_create_notifications
 
 
-def init_background_jobs(scheduler, app: Flask):
+def init_background_jobs(scheduler, app: Flask, debug: bool = False):
     """Initialize background jobs with app context."""
     
     def job_wrapper(func):
@@ -28,13 +28,14 @@ def init_background_jobs(scheduler, app: Flask):
                 raise
         return wrapper
     
-    # Debug job - runs every 30 seconds to verify scheduler works
-    scheduler.add_job(
-        id='debug_ping',
-        func=job_wrapper(debug_ping_job),
-        trigger='interval',
-        seconds=30
-    )
+    # Debug job - only in development
+    if debug:
+        scheduler.add_job(
+            id='debug_ping',
+            func=job_wrapper(debug_ping_job),
+            trigger='interval',
+            seconds=30
+        )
     
     scheduler.add_job(
         id='job_update_news_cache',
@@ -66,18 +67,6 @@ def init_background_jobs(scheduler, app: Flask):
         trigger='interval',
         hours=1
     )
-
-
-def debug_ping_job():
-    """Debug job to verify scheduler is working."""
-    try:
-        with current_app.app_context():
-            from datetime import datetime
-            with open("/tmp/scheduler_ping.txt", "a") as f:
-                f.write(f"DEBUG {datetime.utcnow().isoformat()}\n")
-            current_app.logger.info("--- [DEBUG] Scheduler ping ---")
-    except Exception as e:
-        current_app.logger.error(f"--- [DEBUG] ERROR: {e} ---")
 
 
 def update_all_news_in_background():
@@ -277,3 +266,15 @@ def sync_platform_transactions_background(platform_id: int, user_id: int):
                 )
             except:
                 pass
+
+
+def debug_ping_job():
+    """Debug job to verify scheduler is working."""
+    try:
+        with current_app.app_context():
+            from datetime import datetime
+            with open("/tmp/scheduler_ping.txt", "a") as f:
+                f.write(f"DEBUG {datetime.utcnow().isoformat()}\n")
+            current_app.logger.info("--- [DEBUG] Scheduler ping ---")
+    except Exception as e:
+        current_app.logger.error(f"--- [DEBUG] ERROR: {e} ---")

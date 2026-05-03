@@ -70,7 +70,8 @@ def create_app():
 
     # Initialize background jobs with proper app context
     from background_tasks import init_background_jobs
-    init_background_jobs(scheduler, app)
+    debug_mode = app.config.get('DEBUG', False)
+    init_background_jobs(scheduler, app, debug=debug_mode)
     scheduler.start()
 
     # --- Register Jinja Filters ---

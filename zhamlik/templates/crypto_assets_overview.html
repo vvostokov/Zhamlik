@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+{% from "_macros.html" import render_pagination, format_decimal, format_percent %}
+
+{% block title %}Обзор крипто-портфеля{% endblock %}
+
+{% block content %}
+    <!-- Page Heading -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Обзор крипто-портфеля</h1>
+        <div>
+            <form action="{{ url_for('main.ui_refresh_historical_data') }}" method="POST" class="d-inline">
+                <button type="submit" class="btn btn-sm btn-info"><i class="fas fa-sync-alt"></i> Обновить % изм.</button>
+            </form>
+            <form action="{{ url_for('main.ui_refresh_portfolio_history') }}" method="POST" class="d-inline">
+                <button type="submit" class="btn btn-sm btn-warning"><i class="fas fa-history"></i> Пересчитать историю</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Totals Row -->
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title text-primary">Общая стоимость (RUB)</h5>
+                    <p class="card-text h3">{{ format_decimal(grand_total_rub, 2) }} ₽</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title text-success">Общая стоимость (USDT)</h5>
+                    <p class="card-text h3">{{ format_decimal(grand_total_usdt, 2) }} $</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row">
+        <div class="col-lg-8 mb-4">
+            <div class="card h-100">
+                <div class="card-header">История стоимости криптопортфеля (RUB)</div>
+                <div class="card-body">
+                    <canvas id="portfolioHistoryChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header">Распределение активов</div>
+                <div class="card-body">
+                    <canvas id="assetDistributionChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Analytics Charts Row -->
+    <div class="row">
+        <div class="col-lg-8 mb-4">
+            <div class="card h-100">
+                <div class="card-header">Прибыль / Убыток (PnL) по активам (USDT)</div>
+                <div class="card-body">
+                    <canvas id="pnlBarChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header">Распределение по платформам</div>
+                <div class="card-body">
+                    <canvas id="platformDistributionChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assets Table -->
+    <div class="card mb-4">
+        <div class="card-header">
+            Активы
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Актив</th>
+                            <th>Кол-во</th>
+                            <th>Цена (USDT)</th>
+                            <th>Стоимость (RUB)</th>
+                            <th>24ч %</th>
+                            <th>7д %</th>
+                            <th>30д %</th>
+                            <th>90д %</th>
+                            <th>180д %</th>
+                            <th>365д %</th>
+                            <th>Локации</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if assets %}
+                            {% for ticker, data in assets %} {# ticker - это ключ (например, 'BTC'), data - словарь со значениями #}
+                            <tr>
+                                <td><strong>{{ ticker }}</strong></td>
+                                <td>{{ format_decimal(data.total_quantity, 8) }}</td>
+                                <td>{{ format_decimal(data.current_price, 4) }}</td>
+                                <td>{{ format_decimal(data.total_value_rub, 2) }}</td>
+                                <td>{{ format_percent(data['24h']) }}</td>
+                                <td>{{ format_percent(data['7d']) }}</td>
+                                <td>{{ format_percent(data['30d']) }}</td>
+                                <td>{{ format_percent(data['90d']) }}</td>
+                                <td>{{ format_percent(data['180d']) }}</td>
+                                <td>{{ format_percent(data['365d']) }}</td>
+                                <td class="position-relative">
+                                    {# ИСПРАВЛЕНО: Тег <a> заменен на <button> для предотвращения перехода #}
+                                    {# наверх страницы при клике. Атрибут href="#" в теге <a> является причиной #}
+                                    {# этого поведения. <button> семантически корректнее для действия, #}
+                                    {# не являющегося навигацией, и решает проблему. #}
+                                    <button class="btn btn-light btn-sm" type="button" data-toggle="collapse" data-target="#locations-{{ ticker | replace('.', '-') }}" aria-expanded="false" aria-controls="locations-{{ ticker | replace('.', '-') }}"><i class="fas fa-chevron-down"></i></button>
+                                    <div class="collapse position-absolute bg-light border p-2 rounded shadow-sm" id="locations-{{ ticker | replace('.', '-') }}" style="z-index: 10; right: 0;">
+                                        <div class="pt-2" style="min-width: 250px;">
+                                        {% for loc in data.locations %}
+                                            <div class="d-flex justify-content-between">
+                                                <small><a href="{{ url_for('main.ui_investment_platform_detail', platform_id=loc.platform_id) }}">{{ loc.platform_name }}</a> ({{ loc.account_type }})</small>
+                                                <small class="text-nowrap pl-3">{{ format_decimal(loc.quantity, 8) }}</small>
+                                            </div>
+                                        {% endfor %}
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="11" class="text-center">Крипто-активы не найдены.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Asset Distribution Pie Chart
+        var ctxPie = document.getElementById('assetDistributionChart');
+        if (ctxPie) {
+            new Chart(ctxPie, {
+                type: 'doughnut',
+                data: {
+                    labels: {{ chart_labels | safe }},
+                    datasets: [{
+                        data: {{ chart_data | safe }},
+                        backgroundColor: ['#007bff', '#28a745', '#17a2b8', '#ffc107', '#dc3545', '#6c757d', '#343a40', '#0d6efd', '#6610f2', '#6f42c1'],
+                    }],
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'bottom'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const currentValue = context.raw;
+                                    const total = context.chart.data.datasets[context.datasetIndex].data.reduce((a, b) => a + b, 0);
+                                    const percentage = Math.round((currentValue / total) * 100);
+                                    return `${label}: ${percentage}%`;
+                                }
+                            }
+                        }
+                    }
+                },
+            });
+        }
+
+        // Portfolio History Line Chart
+        var ctxLine = document.getElementById('portfolioHistoryChart');
+        if (ctxLine) {
+            new Chart(ctxLine, {
+                type: 'line',
+                data: {
+                    labels: {{ chart_history_labels | safe }},
+                    datasets: [{
+                        label: "Стоимость (RUB)",
+                        tension: 0.3,
+                        fill: true,
+                        backgroundColor: "rgba(0, 123, 255, 0.05)",
+                        borderColor: "rgba(0, 123, 255, 1)",
+                        pointRadius: 3,
+                        pointBackgroundColor: "rgba(0, 123, 255, 1)",
+                        pointBorderColor: "rgba(0, 123, 255, 1)",
+                        pointHoverRadius: 3,
+                        pointHoverBackgroundColor: "rgba(0, 123, 255, 1)",
+                        pointHoverBorderColor: "rgba(0, 123, 255, 1)",
+                        pointHitRadius: 10,
+                        pointBorderWidth: 2,
+                        data: {{ chart_history_values | safe }},
+                    }],
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                maxTicksLimit: 7
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                maxTicksLimit: 5,
+                                callback: function(value, index, values) {
+                                    return value.toLocaleString('ru-RU') + ' ₽';
+                                }
+                            },
+                            grid: {
+                                color: "rgb(234, 236, 244)",
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(context.parsed.y);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // PnL Bar Chart
+        var ctxPnl = document.getElementById('pnlBarChart');
+        if (ctxPnl) {
+            const pnlData = {{ pnl_chart_data | safe }};
+            new Chart(ctxPnl, {
+                type: 'bar',
+                data: {
+                    labels: {{ pnl_chart_labels | safe }},
+                    datasets: [{
+                        label: 'PnL (USDT)',
+                        data: pnlData,
+                        backgroundColor: pnlData.map(value => value >= 0 ? 'rgba(40, 167, 69, 0.7)' : 'rgba(220, 53, 69, 0.7)'),
+                        borderColor: pnlData.map(value => value >= 0 ? 'rgba(40, 167, 69, 1)' : 'rgba(220, 53, 69, 1)'),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    indexAxis: 'y', // Horizontal bar chart
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value, index, values) {
+                                    return value.toLocaleString('en-US') + ' $';
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.x !== null) {
+                                        label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.x);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Platform Distribution Pie Chart
+        var ctxPlatformPie = document.getElementById('platformDistributionChart');
+        if (ctxPlatformPie) {
+            new Chart(ctxPlatformPie, {
+                type: 'doughnut',
+                data: {
+                    labels: {{ platform_pie_labels | safe }},
+                    datasets: [{
+                        data: {{ platform_pie_data | safe }},
+                        backgroundColor: ['#6f42c1', '#fd7e14', '#20c997', '#6c757d', '#0dcaf0', '#d63384', '#ffc107'],
+                    }],
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'bottom'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const currentValue = context.raw;
+                                    const total = context.chart.data.datasets[context.datasetIndex].data.reduce((a, b) => a + b, 0);
+                                    const percentage = total > 0 ? Math.round((currentValue / total) * 100) : 0;
+                                    const formattedValue = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(currentValue);
+                                    return `${label}: ${formattedValue} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                },
+            });
+        }
+    });
+    </script>
+{% endblock %}

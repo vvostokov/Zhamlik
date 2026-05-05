@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+
+{% block title %}Обязательства{% endblock %}
+
+{% block content %}
+<style>
+.obligation-card {
+    transition: all 0.2s ease;
+}
+.obligation-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.obligation-i-owe {
+    border-left: 4px solid #dc3545;
+}
+.obligation-owed-to-me {
+    border-left: 4px solid #198754;
+}
+.obligation-recurring {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+.recurring-badge {
+    animation: pulse 2s infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+.overdue {
+    background-color: #fff3cd !important;
+}
+.summary-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+.summary-positive {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+}
+.summary-negative {
+    background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+}
+</style>
+
+<div class="container-fluid mt-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1">📋 Обязательства</h2>
+            <p class="text-muted mb-0">Управление долгами и регулярными платежами</p>
+        </div>
+        <div class="btn-group">
+            <a href="{{ url_for('main.add_debt') }}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Добавить долг
+            </a>
+            <a href="{{ url_for('main.ui_add_recurring_payment') }}" class="btn btn-outline-primary">
+                <i class="bi bi-arrow-repeat"></i> Регулярный платеж
+            </a>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4" id="summarySection">
+        <div class="col-md-4">
+            <div class="card summary-negative shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 opacity-75">Я должен</h6>
+                    <h2 class="card-title mb-0" id="totalIOwe">₽0</h2>
+                    <small class="text-white-50" id="iOweCount">0 обязательств</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card summary-positive shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 opacity-75">Мне должны</h6>
+                    <h2 class="card-title mb-0" id="totalOwedToMe">₽0</h2>
+                    <small class="text-white-50" id="owedToMeCount">0 обязательств</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card summary-card shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 opacity-75">Баланс</h6>
+                    <h2 class="card-title mb-0" id="netBalance">₽0</h2>
+                    <small class="text-white-50" id="totalCount">Всего 0 обязательств</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Тип</label>
+                    <select class="form-select" id="filterType">
+                        <option value="all">Все типы</option>
+                        <option value="i_owe">Я должен 🔴</option>
+                        <option value="owed_to_me">Мне должны 🟢</option>
+                        <option value="recurring">Только регулярные 🔄</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Статус</label>
+                    <select class="form-select" id="filterStatus">
+                        <option value="all">Все статусы</option>
+                        <option value="active">Активные</option>
+                        <option value="completed">Завершенные</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">От даты</label>
+                    <input type="date" class="form-control" id="dateFrom">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">До даты</label>
+                    <input type="date" class="form-control" id="dateTo">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-outline-secondary w-100" onclick="resetFilters()">
+                        <i class="bi bi-x-circle"></i> Сбросить
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Obligations Table -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Список обязательств</h5>
+                <div class="spinner-border spinner-border-sm d-none" id="loadingSpinner" role="status">
+                    <span class="visually-hidden">Загрузка...</span>
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 50px"></th>
+                            <th>Контрагент / Описание</th>
+                            <th>Тип</th>
+                            <th class="text-end">Сумма</th>
+                            <th class="text-end">Остаток</th>
+                            <th>Срок</th>
+                            <th>Статус</th>
+                            <th class="text-center">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="obligationsTable">
+                        <tr>
+                            <td colspan="8" class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Загрузка...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentObligations = [];
+
+// Load obligations on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadObligations();
+});
+
+// Event listeners for filters
+document.getElementById('filterType').addEventListener('change', loadObligations);
+document.getElementById('filterStatus').addEventListener('change', loadObligations);
+document.getElementById('dateFrom').addEventListener('change', loadObligations);
+document.getElementById('dateTo').addEventListener('change', loadObligations);
+
+function loadObligations() {
+    const filterType = document.getElementById('filterType').value;
+    const filterStatus = document.getElementById('filterStatus').value;
+    const dateFrom = document.getElementById('dateFrom').value;
+    const dateTo = document.getElementById('dateTo').value;
+
+    // Show loading
+    document.getElementById('loadingSpinner').classList.remove('d-none');
+
+    // Build URL with filters
+    let url = '/api/obligations?type=' + filterType;
+    if (filterStatus !== 'all') url += '&status=' + filterStatus;
+    if (dateFrom) url += '&date_from=' + dateFrom;
+    if (dateTo) url += '&date_to=' + dateTo;
+
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            currentObligations = data.obligations;
+            renderObligations(data);
+            updateSummary(data);
+        })
+        .catch(error => {
+            console.error('Error loading obligations:', error);
+            document.getElementById('obligationsTable').innerHTML =
+                '<tr><td colspan="8" class="text-center text-danger py-4">Ошибка загрузки данных</td></tr>';
+        })
+        .finally(() => {
+            document.getElementById('loadingSpinner').classList.add('d-none');
+        });
+}
+
+function renderObligations(data) {
+    const tbody = document.getElementById('obligationsTable');
+
+    if (data.obligations.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" class="text-center py-5">
+                    <div class="text-muted">
+                        <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+                        <p class="mt-3 mb-0">Нет обязательств</p>
+                        <small>Добавьте долг или регулярный платеж</small>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = data.obligations.map(obl => {
+        const isIOwe = obl.subtype === 'i_owe';
+        const rowClass = isIOwe ? 'obligation-i-owe' : 'obligation-owed-to-me';
+        const recurringClass = obl.is_recurring ? 'obligation-recurring' : '';
+
+        // Check if overdue
+        const today = new Date().toISOString().split('T')[0];
+        const overdue = obl.due_date && obl.due_date < today && obl.status === 'active';
+        const overdueClass = overdue ? 'overdue' : '';
+
+        // Type badge
+        const typeBadge = isIOwe
+            ? '<span class="badge bg-danger">Я должен</span>'
+            : '<span class="badge bg-success">Мне должны</span>';
+
+        // Recurring badge
+        const recurringBadge = obl.is_recurring
+            ? '<span class="badge bg-primary recurring-badge ms-1">🔄 Регулярный</span>'
+            : '';
+
+        // Status badge
+        let statusBadge = '';
+        if (obl.status === 'active') {
+            statusBadge = overdue
+                ? '<span class="badge bg-warning text-dark">Просрочен</span>'
+                : '<span class="badge bg-success">Активен</span>';
+        } else if (obl.status === 'repaid') {
+            statusBadge = '<span class="badge bg-secondary">Погашен</span>';
+        } else {
+            statusBadge = `<span class="badge bg-secondary">${obl.status}</span>`;
+        }
+
+        // Format date
+        const dateStr = obl.due_date
+            ? new Date(obl.due_date).toLocaleDateString('ru-RU')
+            : '<span class="text-muted">Бессрочно</span>';
+
+        // Actions
+        const actions = [];
+        if (obl.actions.repay) {
+            actions.push(`<a href="${obl.actions.repay}" class="btn btn-sm btn-success">Погасить</a>`);
+        }
+        actions.push(`<a href="${obl.actions.edit}" class="btn btn-sm btn-outline-primary">Изменить</a>`);
+        actions.push(`<a href="${obl.actions.delete}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить обязательство?');">Удалить</a>`);
+
+        return `
+            <tr class="${rowClass} ${recurringClass} ${overdueClass}">
+                <td>
+                    ${isIOwe ? '<i class="bi bi-arrow-up-circle-fill text-danger"></i>' : '<i class="bi bi-arrow-down-circle-fill text-success"></i>'}
+                </td>
+                <td>
+                    <strong>${obl.counterparty}</strong>
+                    ${obl.description ? `<br><small class="text-muted">${obl.description}</small>` : ''}
+                    ${recurringBadge}
+                </td>
+                <td>${typeBadge}</td>
+                <td class="text-end">
+                    <strong>${formatMoney(obl.amount, obl.currency)}</strong>
+                </td>
+                <td class="text-end">
+                    <span class="${isIOwe ? 'text-danger' : 'text-success'} fw-bold">
+                        ${formatMoney(obl.remaining, obl.currency)}
+                    </span>
+                </td>
+                <td>${dateStr}</td>
+                <td>${statusBadge}</td>
+                <td class="text-center">
+                    <div class="btn-group btn-group-sm">
+                        ${actions.join('')}
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function updateSummary(data) {
+    document.getElementById('totalIOwe').textContent = formatMoney(data.totals.i_owe, '₽');
+    document.getElementById('totalOwedToMe').textContent = formatMoney(data.totals.owed_to_me, '₽');
+
+    const net = data.totals.net;
+    const netElement = document.getElementById('netBalance');
+    netElement.textContent = formatMoney(Math.abs(net), '₽');
+
+    // Update card color based on net balance
+    const netCard = netElement.closest('.card');
+    if (net > 0) {
+        netCard.classList.remove('summary-card', 'summary-negative');
+        netCard.classList.add('summary-positive');
+    } else if (net < 0) {
+        netCard.classList.remove('summary-card', 'summary-positive');
+        netCard.classList.add('summary-negative');
+    } else {
+        netCard.classList.remove('summary-positive', 'summary-negative');
+        netCard.classList.add('summary-card');
+    }
+
+    // Count types
+    const iOweCount = currentObligations.filter(o => o.subtype === 'i_owe' && o.status === 'active').length;
+    const owedToMeCount = currentObligations.filter(o => o.subtype === 'owed_to_me' && o.status === 'active').length;
+
+    document.getElementById('iOweCount').textContent = iOweCount + ' обяз. (' + data.summary.recurring_count + ' регулярных)';
+    document.getElementById('owedToMeCount').textContent = owedToMeCount + ' обяз.';
+    document.getElementById('totalCount').textContent = 'Всего ' + data.summary.total_count + ' обязательств';
+}
+
+function formatMoney(amount, currency = '₽') {
+    return new Intl.NumberFormat('ru-RU', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(amount) + ' ' + currency;
+}
+
+function resetFilters() {
+    document.getElementById('filterType').value = 'all';
+    document.getElementById('filterStatus').value = 'all';
+    document.getElementById('dateFrom').value = '';
+    document.getElementById('dateTo').value = '';
+    loadObligations();
+}
+</script>
+{% endblock %}

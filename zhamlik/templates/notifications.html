@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Уведомления</h2>
+    
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Все уведомления</span>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="markAllAsRead()">Прочитать все</button>
+        </div>
+        <div class="card-body">
+            {% if notifications %}
+                <div class="list-group">
+                    {% for notif in notifications %}
+                    <a href="{{ notif.link or '#' }}" 
+                       class="list-group-item list-group-item-action {% if notif.type == 'debt_overdue' %}list-group-item-danger{% elif notif.type == 'debt_due' %}list-group-item-warning{% endif %} {% if notif.is_read %}list-group-item-secondary{% endif %}"
+                       onclick="{% if notif.is_read %}{% else %}markAsRead({{ notif.id }}); return false;{% endif %}">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h5 class="mb-1">
+                                {% if notif.type == 'debt_overdue' %}⚠️{% elif notif.type == 'debt_due' %}🔔{% else %}ℹ️{% endif %}
+                                {{ notif.title }}
+                                {% if notif.is_read %}<small class="text-muted">(прочитано)</small>{% endif %}
+                            </h5>
+                            <small>{{ notif.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                        </div>
+                        <p class="mb-1">{{ notif.message }}</p>
+                    </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-center text-muted">У вас пока нет уведомлений</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function markAsRead(notificationId) {
+    fetch(`/api/notifications/${notificationId}/read`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            }
+        });
+}
+
+function markAllAsRead() {
+    fetch('/api/notifications/read-all', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            }
+        });
+}
+</script>
+{% endblock %}

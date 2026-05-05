@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Планирование платежей{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Планирование платежей</h2>
+    <p class="text-muted">Обзор всех предстоящих финансовых обязательств: долгов к погашению и регулярных платежей.</p>
+
+    <!-- Секция 1: Предстоящие долги (i_owe) -->
+    <div class="card mt-4">
+        <div class="card-header bg-danger text-white">
+            <h4 class="mb-0">Предстоящие долги к погашению</h4>
+        </div>
+        <div class="card-body">
+            {% if active_debts %}
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Контрагент</th>
+                        <th>Остаток долга</th>
+                        <th>Крайний срок</th>
+                        <th>Описание</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for debt in active_debts %}
+                    <tr>
+                        <td>{{ debt.counterparty }}</td>
+                        <td>
+                            {% set remaining = debt.initial_amount - debt.repaid_amount %}
+                            <span class="text-danger">{{ remaining | money_format }} {{ debt.currency }}</span>
+                        </td>
+                        <td>
+                            {% if debt.due_date %}
+                                {{ debt.due_date.strftime('%d.%m.%Y') }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>{{ debt.description or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="mb-0">У вас нет активных долгов к погашению.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Секция 2: Регулярные платежи -->
+    <div class="card mt-4">
+        <div class="card-header bg-primary text-white">
+            <h4 class="mb-0">Регулярные платежи</h4>
+        </div>
+        <div class="card-body">
+            {% if recurring_payments %}
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Описание</th>
+                        <th>Сумма</th>
+                        <th>Периодичность</th>
+                        <th>Следующий платеж</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for payment in recurring_payments %}
+                    <tr>
+                        <td>{{ payment.description }}</td>
+                        <td>{{ payment.amount | money_format }} {{ payment.currency }}</td>
+                        <td>{{ payment.frequency }}</td>
+                        <td>{{ payment.next_due_date.strftime('%d.%m.%Y') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="mb-0">У вас нет запланированных регулярных платежей.</p>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}

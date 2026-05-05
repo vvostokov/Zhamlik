@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0d6efd">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Zhamlik Финансы</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/images/icon-192x192.png">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #0dcaf0;
+            --light-bg: #f8f9fa;
+            --card-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            padding-bottom: 80px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            background-color: var(--light-bg);
+        }
+
+        .header {
+            background: white;
+            padding: 16px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .balance-card {
+            background: linear-gradient(135deg, var(--primary-color) 0%, #0a58ca 100%);
+            color: white;
+            border-radius: 20px;
+            padding: 24px;
+            margin: 16px;
+            box-shadow: 0 4px 20px rgba(13, 110, 253, 0.3);
+        }
+
+        .balance-amount {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 8px 0;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 16px;
+            padding: 16px;
+            margin: 8px 16px;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.2s;
+        }
+
+        .stat-card:active {
+            transform: scale(0.98);
+        }
+
+        .transaction-item {
+            display: flex;
+            align-items: center;
+            padding: 16px;
+            border-bottom: 1px solid #f0f0f0;
+            background: white;
+            transition: background 0.2s;
+        }
+
+        .transaction-item:active {
+            background: #f8f9fa;
+        }
+
+        .transaction-item:first-child {
+            border-top-left-radius: 16px;
+            border-top-right-radius: 16px;
+        }
+
+        .transaction-item:last-child {
+            border-bottom: none;
+            border-bottom-left-radius: 16px;
+            border-bottom-right-radius: 16px;
+        }
+
+        .transaction-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 16px;
+            font-size: 24px;
+            flex-shrink: 0;
+        }
+
+        .transaction-icon.income {
+            background: rgba(25, 135, 84, 0.1);
+            color: var(--success-color);
+        }
+
+        .transaction-icon.expense {
+            background: rgba(220, 53, 69, 0.1);
+            color: var(--danger-color);
+        }
+
+        .transaction-details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .transaction-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .transaction-date {
+            font-size: 0.875rem;
+            color: #6c757d;
+        }
+
+        .transaction-amount {
+            font-weight: 700;
+            font-size: 1.1rem;
+            flex-shrink: 0;
+        }
+
+        .transaction-amount.income {
+            color: var(--success-color);
+        }
+
+        .transaction-amount.expense {
+            color: var(--danger-color);
+        }
+
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #e9ecef;
+            padding: 8px 0 env(safe-area-inset-bottom, 8px);
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+            z-index: 1000;
+        }
+
+        .nav-item {
+            text-align: center;
+            padding: 8px;
+            color: #6c757d;
+            text-decoration: none;
+            display: block;
+            transition: color 0.2s;
+        }
+
+        .nav-item:active {
+            background: #f8f9fa;
+        }
+
+        .nav-item.active {
+            color: var(--primary-color);
+        }
+
+        .nav-item i {
+            font-size: 1.5rem;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .nav-item span {
+            font-size: 0.75rem;
+        }
+
+        .fab {
+            position: fixed;
+            bottom: 90px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(13, 110, 253, 0.4);
+            border: none;
+            font-size: 24px;
+            z-index: 999;
+            transition: transform 0.2s;
+        }
+
+        .fab:active {
+            transform: scale(0.95);
+        }
+
+        .category-chart {
+            padding: 16px;
+        }
+
+        .category-bar {
+            margin-bottom: 20px;
+        }
+
+        .category-name {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .progress {
+            height: 8px;
+            border-radius: 4px;
+        }
+
+        .page-header {
+            background: white;
+            padding: 16px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+            display: block;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .form-control, .form-select {
+            border-radius: 12px;
+            padding: 12px 16px;
+            border: 2px solid #e9ecef;
+            font-size: 1rem;
+        }
+
+        .form-control:focus, .form-select:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+        }
+
+        .btn {
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            border: none;
+        }
+
+        .btn-primary:active {
+            background: #0a58ca;
+        }
+
+        .amount-positive {
+            color: var(--success-color);
+        }
+
+        .amount-negative {
+            color: var(--danger-color);
+        }
+
+        .quick-actions {
+            display: flex;
+            gap: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .quick-action-btn {
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            min-width: 80px;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .quick-action-btn i {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+
+        .quick-action-btn span {
+            font-size: 0.75rem;
+        }
+
+        .transaction-actions {
+            display: flex;
+            align-items: center;
+            margin-left: 8px;
+        }
+
+        .transaction-actions button {
+            opacity: 0.5;
+            transition: opacity 0.2s;
+        }
+
+        .transaction-item:hover .transaction-actions button,
+        .transaction-item:active .transaction-actions button {
+            opacity: 1;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 16px;
+            padding: 16px;
+            margin: 8px 16px;
+            box-shadow: var(--card-shadow);
+        }
+
+        .chart-container canvas {
+            max-height: 250px;
+        }
+
+        #qr-reader {
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        #qr-reader video {
+            width: 100% !important;
+            height: auto !important;
+            object-fit: cover;
+        }
+
+        .camera-overlay {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        .scan-line {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #dc3545, transparent);
+            animation: scan 2s linear infinite;
+        }
+
+        @keyframes scan {
+            0%, 100% { top: 10%; }
+            50% { top: 90%; }
+        }
+
+        .camera-placeholder {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 16px;
+            padding: 40px 20px;
+            text-align: center;
+            color: white;
+            margin: 16px;
+        }
+
+        .camera-placeholder i {
+            font-size: 4rem;
+            margin-bottom: 16px;
+        }
+
+        .camera-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h5 class="mb-0" id="pageTitle">Zhamlik</h5>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions" id="quickActions" style="display: none;">
+        <a href="#" class="quick-action-btn" onclick="showAddTransaction('income')">
+            <i class="bi bi-arrow-down-left text-success"></i>
+            <span>Доход</span>
+        </a>
+        <a href="#" class="quick-action-btn" onclick="showAddTransaction('expense')">
+            <i class="bi bi-arrow-up-right text-danger"></i>
+            <span>Расход</span>
+        </a>
+        <a href="#" class="quick-action-btn" onclick="showPurchaseModal()">
+            <i class="bi bi-qr-code-scan text-info"></i>
+            <span>Покупка</span>
+        </a>
+        <a href="#" class="quick-action-btn" onclick="showAddTransfer()">
+            <i class="bi bi-arrow-left-right text-primary"></i>
+            <span>Перевод</span>
+        </a>
+    </div>
+
+    <!-- App Container -->
+    <div id="app"></div>
+
+    <!-- FAB Button -->
+    <button class="fab" onclick="showQuickActions()">
+        <i class="bi bi-plus-lg"></i>
+    </button>
+
+    <!-- Add Transaction Modal -->
+    <div class="modal" id="addTransactionModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="mb-0" id="modalTitle">Добавить операцию</h5>
+                <button type="button" class="btn-close float-end" onclick="closeModal('addTransactionModal')"></button>
+            </div>
+            <div class="modal-body">
+                <form id="transactionForm">
+                    <input type="hidden" id="transactionType" value="expense">
+
+                    <div class="mb-3">
+                        <label class="form-label">Сумма</label>
+                        <input type="number" class="form-control" id="txAmount" step="0.01" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Описание</label>
+                        <input type="text" class="form-control" id="txDescription" placeholder="Например: Продукты">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Счет</label>
+                        <select class="form-select" id="txAccount" required>
+                            <option value="">Выберите счет</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Категория</label>
+                        <select class="form-select" id="txCategory">
+                            <option value="">Без категории</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Дата</label>
+                        <input type="date" class="form-control" id="txDate" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addTransactionModal')">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="saveTransaction()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Account Modal -->
+    <div class="modal" id="addAccountModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="mb-0">Добавить счет</h5>
+                <button type="button" class="btn-close float-end" onclick="closeModal('addAccountModal')"></button>
+            </div>
+            <div class="modal-body">
+                <form id="accountForm">
+                    <div class="mb-3">
+                        <label class="form-label">Название счета</label>
+                        <input type="text" class="form-control" id="accName" placeholder="Например: Наличные" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Тип счета</label>
+                        <select class="form-select" id="accType">
+                            <option value="bank_account">Банковский счет</option>
+                            <option value="bank_card">Банковская карта</option>
+                            <option value="cash">Наличные</option>
+                            <option value="credit_card">Кредитная карта</option>
+                            <option value="savings">Накопительный счет</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Начальный баланс</label>
+                        <input type="number" class="form-control" id="accBalance" step="0.01" value="0" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Валюта</label>
+                        <select class="form-select" id="accCurrency">
+                            <option value="RUB">RUB - Рубль</option>
+                            <option value="USD">USD - Доллар</option>
+                            <option value="EUR">EUR - Евро</option>
+                            <option value="KZT">KZT - Тенге</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addAccountModal')">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="saveAccount()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Debt Modal -->
+    <div class="modal" id="addDebtModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="mb-0" id="debtModalTitle">Добавить долг</h5>
+                <button type="button" class="btn-close float-end" onclick="closeModal('addDebtModal')"></button>
+            </div>
+            <div class="modal-body">
+                <form id="debtForm">
+                    <div class="mb-3">
+                        <label class="form-label">Тип долга</label>
+                        <select class="form-select" id="debtType" onchange="updateDebtModalTitle()">
+                            <option value="i_owe">Я должен</option>
+                            <option value="owed_to_me">Мне должны</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Контрагент</label>
+                        <input type="text" class="form-control" id="debtCounterparty" placeholder="Имя или организация" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Сумма</label>
+                        <input type="number" class="form-control" id="debtAmount" step="0.01" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Дата возврата (опционально)</label>
+                        <input type="date" class="form-control" id="debtDueDate">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Описание (опционально)</label>
+                        <textarea class="form-control" id="debtDescription" rows="3" placeholder="Заметки о долге"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addDebtModal')">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="saveDebt()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Purchase/QR Code Modal -->
+    <div class="modal" id="purchaseModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="mb-0">Покупка по QR-коду</h5>
+                <button type="button" class="btn-close float-end" onclick="closeModal('purchaseModal')"></button>
+            </div>
+            <div class="modal-body">
+                <div id="qrUploadSection">
+                    <div class="text-center mb-4">
+                        <i class="bi bi-qr-code-scan display-4 text-primary mb-3"></i>
+                        <p class="text-muted">Сканируйте или загрузите QR-код чека</p>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <button class="btn btn-primary w-100 py-3" onclick="document.getElementById('qrCodeCamera').click()">
+                                <i class="bi bi-camera-fill d-block mb-1" style="font-size: 1.5rem;"></i>
+                                <small>Камера</small>
+                            </button>
+                            <input type="file" id="qrCodeCamera" accept="image/*" capture="environment" onchange="handleQRUpload(event)" style="display: none;">
+                        </div>
+                        <div class="col-6">
+                            <button class="btn btn-outline-primary w-100 py-3" onclick="document.getElementById('qrCodeFile').click()">
+                                <i class="bi bi-image d-block mb-1" style="font-size: 1.5rem;"></i>
+                                <small>Файл</small>
+                            </button>
+                            <input type="file" id="qrCodeFile" accept="image/*" onchange="handleQRUpload(event)" style="display: none;">
+                        </div>
+                    </div>
+
+                    <div id="qrPreview" class="text-center mb-3" style="display: none;">
+                        <img id="qrPreviewImage" src="" alt="QR Code Preview" style="max-width: 200px; max-height: 200px; border-radius: 12px;">
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="text-center">
+                        <p class="text-muted small mb-2">Или введите данные вручную</p>
+                        <button class="btn btn-outline-primary btn-sm" onclick="showManualPurchase()">
+                            <i class="bi bi-pencil"></i> Вручную
+                        </button>
+                    </div>
+                </div>
+
+                <div id="manualPurchaseSection" style="display: none;">
+                    <div class="mb-3">
+                        <label class="form-label">Сумма покупки</label>
+                        <input type="number" class="form-control" id="purchaseAmount" step="0.01" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Описание</label>
+                        <input type="text" class="form-control" id="purchaseDescription" placeholder="Например: Продукты">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Счет списания</label>
+                        <select class="form-select" id="purchaseAccount" required>
+                            <option value="">Выберите счет</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Категория</label>
+                        <select class="form-select" id="purchaseCategory">
+                            <option value="">Без категории</option>
+                        </select>
+                    </div>
+
+                    <button class="btn btn-outline-secondary btn-sm mb-3" onclick="showQRUpload()">
+                        <i class="bi bi-arrow-left"></i> Назад к QR-коду
+                    </button>
+                </div>
+
+                <div id="qrProcessing" class="text-center" style="display: none;">
+                    <div class="spinner-border text-primary mb-3" role="status"></div>
+                    <p class="text-muted">Распознавание QR-кода...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('purchaseModal')">Отмена</button>
+                <button type="button" class="btn btn-primary" id="savePurchaseBtn" onclick="savePurchase()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+        <div class="container">
+            <div class="row">
+                <div class="col-3">
+                    <a href="#home" class="nav-item active" data-page="home">
+                        <i class="bi bi-house"></i>
+                        <span>Главная</span>
+                    </a>
+                </div>
+                <div class="col-3">
+                    <a href="#analytics" class="nav-item" data-page="analytics">
+                        <i class="bi bi-graph-up"></i>
+                        <span>Аналитика</span>
+                    </a>
+                </div>
+                <div class="col-3">
+                    <a href="#accounts" class="nav-item" data-page="accounts">
+                        <i class="bi bi-wallet2"></i>
+                        <span>Счета</span>
+                    </a>
+                </div>
+                <div class="col-3">
+                    <a href="#obligations" class="nav-item" data-page="obligations">
+                        <i class="bi bi-calendar-check"></i>
+                        <span>Обязательства</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app.js?v=10"></script>
+
+    <!-- Register Service Worker -->
+    <script>
+        // Temporarily disabled for development
+        /*
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.error('Service Worker registration failed', err));
+        }
+        */
+    </script>
+</body>
+</html>

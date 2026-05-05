@@ -1,0 +1,95 @@
+import 'package:flutter/material.dart';
+
+class QuickActionGrid extends StatelessWidget {
+  final List<QuickAction> actions;
+
+  const QuickActionGrid({
+    super.key,
+    required this.actions,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 1.5,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: actions.length,
+      itemBuilder: (context, index) {
+        return _buildActionCard(context, actions[index]);
+      },
+    );
+  }
+
+  Widget _buildActionCard(BuildContext context, QuickAction action) {
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => Scaffold(
+              appBar: AppBar(
+                backgroundColor: action.color,
+                title: Text(action.title),
+              ),
+              body: Center(
+                child: Text(
+                  action.title,
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: action.color.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                action.icon,
+                color: action.color,
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              action.title,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: action.color,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class QuickAction {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+
+  QuickAction({
+    required this.title,
+    required this.icon,
+    required this.color,
+    this.onTap,
+  });
+}

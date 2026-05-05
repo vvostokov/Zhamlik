@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block styles %}
+{% block title %}Категории - Финансовый Помощник{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Категории</h2>
+        <a href="{{ url_for('main.ui_add_category_form') }}" class="btn btn-primary">Добавить категорию</a>
+    </div>
+
+    <div class="row">
+        <div class="col-md-4">
+            <h4>Фильтр</h4>
+            <div class="form-group">
+                <label for="category_type_filter">Тип категории</label>
+                <select class="form-control" id="category_type_filter">
+                    <option value="all">Все</option>
+                    <option value="expense">Расход</option>
+                    <option value="income">Доход</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    {% if expense_parents or income_parents %}
+        <h4 class="mt-4">Расходы</h4>
+        <ul class="list-group">
+        {% for category in expense_parents %}
+            <li class="list-group-item">
+            {{ category.name }}
+                {% if category.subcategories %}
+                <ul class="list-group">
+                    {% for subcategory in category.subcategories %}
+                    <li class="list-group-item">
+                        {{ subcategory.name }}
+                        <form action="{{ url_for('main.ui_delete_category', category_id=subcategory.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Вы уверены, что хотите удалить эту подкатегорию?');">
+                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                        </form>
+                    <a href="{{ url_for('main.ui_edit_category_form', category_id=subcategory.id) }}" class="btn btn-sm btn-outline-secondary mr-1"><i class="fas fa-pencil-alt"></i></a>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+
+                <form action="{{ url_for('main.ui_delete_category', category_id=category.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Вы уверены, что хотите удалить эту категорию и все ее подкатегории?');">
+                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                </form>
+
+            </li>
+        {% endfor %}
+        </ul>
+        <h4 class="mt-4">Доходы</h4>
+        <ul class="list-group">
+            {% for category in income_parents %}
+            <li class="list-group-item">
+            {{ category.name }}
+            {% if category.subcategories %}
+                <ul class="list-group">
+                    {% for subcategory in category.subcategories %}
+                    <li class="list-group-item">
+                        {{ subcategory.name }}
+                        <form action="{{ url_for('main.ui_delete_category', category_id=subcategory.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Вы уверены, что хотите удалить эту подкатегорию?');">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                        </form>
+                        <a href="{{ url_for('main.ui_edit_category_form', category_id=subcategory.id) }}" class="btn btn-sm btn-outline-secondary mr-1"><i class="fas fa-pencil-alt"></i></a>
+                    </li>{% endfor %}
+                </ul>{% endif %}
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <div class="alert alert-light">
+            Категорий пока нет. <a href="{{ url_for('main.ui_add_category_form') }}" class="alert-link">Добавить новую?</a>
+        </div>
+    {% endif %}
+</div>
+<script>
+    document.getElementById('category_type_filter').addEventListener('change', function() {
+        const selectedType = this.value;
+        // You would add javascript here to filter the display of the categories based on the selected type
+        // For example, you can add/remove the "d-none" class to hide/show categories based on their type.
+        // You would need to add a data-category-type attribute to each category element to make this work.
+    });
+</script>
+{% endblock %}
+{% endblock %}

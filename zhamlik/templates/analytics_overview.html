@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+
+{% block title %}Аналитика - Финансовый Помощник{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Аналитика</h2>
+
+    <!-- Общий баланс с разбивкой -->
+    <div class="card mb-3">
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+        <div class="card-header">
+            <strong>Общий баланс</strong>
+        </div>
+        <div class="card-body">
+            <h3 class="card-title">{{ total_balance_rub | money_format }} RUB</h3>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <p class="card-text mb-1">
+                        <i class="bi bi-bank"></i> Банковские счета: <strong>{{ bank_balance_rub | money_format }} RUB</strong>
+                    </p>
+                    <p class="card-text mb-0">
+                        <i class="bi bi-currency-bitcoin"></i> Криптовалюты: <strong>{{ crypto_total_rub | money_format }} RUB</strong>
+                    </p>
+                </div>
+                <div class="col-md-6 text-muted small">
+                    Общая сумма на всех ваших банковских счетах и крипто-активах (включая кредитные карты)
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Быстрые фильтры периода -->
+    <div class="mb-3">
+        <div class="btn-group" role="group">
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=7d" class="btn btn-sm {% if preset == '7d' %}btn-primary{% else %}btn-outline-primary{% endif %}">7 дней</a>
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=30d" class="btn btn-sm {% if preset == '30d' or not preset %}btn-primary{% else %}btn-outline-primary{% endif %}">30 дней</a>
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=3m" class="btn btn-sm {% if preset == '3m' %}btn-primary{% else %}btn-outline-primary{% endif %}">3 месяца</a>
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=1y" class="btn btn-sm {% if preset == '1y' %}btn-primary{% else %}btn-outline-primary{% endif %}">1 год</a>
+            <a href="{{ url_for('main.ui_analytics_overview') }}?preset=all" class="btn btn-sm {% if preset == 'all' %}btn-primary{% else %}btn-outline-primary{% endif %}">Всё время</a>
+        </div>
+
+        <button class="btn btn-sm btn-outline-secondary ml-2" type="button" data-toggle="collapse" data-target="#customDateForm">
+            <i class="bi bi-calendar"></i> Произвольный период
+        </button>
+    </div>
+
+    <!-- Форма произвольного периода -->
+    <div class="collapse mb-3" id="customDateForm">
+        <div class="card card-body">
+            <form method="GET" action="{{ url_for('main.ui_analytics_overview') }}">
+                <div class="form-row align-items-center">
+                    <div class="col-auto">
+                        <label for="startDate">Начальная дата</label>
+                        <input type="date" class="form-control form-control-sm" id="startDate" name="start_date" value="{{ start_date_str }}" required>
+                    </div>
+                    <div class="col-auto">
+                        <label for="endDate">Конечная дата</label>
+                        <input type="date" class="form-control form-control-sm" id="endDate" name="end_date" value="{{ end_date_str }}" required>
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-primary btn-sm">Применить</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- KPI карточки с сравнением -->
+    <div class="row mt-3">
+        <div class="col-md-4">
+            <div class="card text-white bg-success mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Доход</span>
+                    <small {% if income_change_pct > 0 %}class="text-light"{% elif income_change_pct < 0 %}class="text-warning"{% else %}class="text-white-50"{% endif %}>
+                        {% if income_change_pct > 0 %}<i class="bi bi-arrow-up"></i> +{{ income_change_pct }}%{% elif income_change_pct < 0 %}<i class="bi bi-arrow-down"></i> {{ income_change_pct }}%{% else %}0%{% endif %}
+                    </small>
+                </div>
+                <div class="card-body">
+                    <h5 class="card-title">{{ total_income | money_format }} RUB</h5>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-white bg-danger mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Расход</span>
+                    <small {% if expense_change_pct < 0 %}class="text-light"{% elif expense_change_pct > 0 %}class="text-warning"{% else %}class="text-white-50"{% endif %}>
+                        {% if expense_change_pct > 0 %}<i class="bi bi-arrow-up"></i> +{{ expense_change_pct }}%{% elif expense_change_pct < 0 %}<i class="bi bi-arrow-down"></i> {{ expense_change_pct }}%{% else %}0%{% endif %}
+                    </small>
+                </div>
+                <div class="card-body">
+                    <h5 class="card-title">{{ total_expense | money_format }} RUB</h5>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-white {% if net_cash_flow > 0 %}bg-primary{% else %}bg-warning{% endif %} mb-3">
+                <div class="card-header">Чистый поток</div>
+                <div class="card-body">
+                    <h5 class="card-title">{{ net_cash_flow | money_format }} RUB</h5>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Новые метрики -->
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-subtitle mb-2 text-muted">Средний чек</h6>
+                    <h4 class="card-title">{{ avg_check }} RUB</h4>
+                    <small class="text-muted">{{ tx_count }} транзакций за период</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-subtitle mb-2 text-muted">Частота транзакций</h6>
+                    <h4 class="card-title">{{ tx_frequency }}/день</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="card-subtitle mb-2 text-muted">Период</h6>
+                    <h4 class="card-title">{{ start_date_str }} - {{ end_date_str }}</h4>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs mt-4" id="analyticsTabs" role="tablist">
+        <li class="nav-item">
+            <a class="nav-link active" id="flow-tab" data-toggle="tab" href="#flow" role="tab" aria-controls="flow" aria-selected="true">Денежный поток</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="expenses-tab" data-toggle="tab" href="#expenses" role="tab" aria-controls="expenses" aria-selected="false">Расходы</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="income-tab" data-toggle="tab" href="#income" role="tab" aria-controls="income" aria-selected="false">Доходы</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="counterparties-tab" data-toggle="tab" href="#counterparties" role="tab" aria-controls="counterparties" aria-selected="false">Контрагенты</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="external-tab" data-toggle="tab" href="#external" role="tab" aria-controls="external" aria-selected="false">Другие счета</a>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="analyticsTabsContent">
+        <!-- TAB 1: Денежный поток -->
+        <div class="tab-pane fade show active" id="flow" role="tabpanel" aria-labelledby="flow-tab">
+            <div class="row mt-4">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header">Чистый денежный поток по месяцам (12 мес.)</div>
+                        <div class="card-body">
+                            <canvas id="netFlowOverTimeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Доходы и расходы (30 дней)</div>
+                        <div class="card-body">
+                            <canvas id="incomeExpenseChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: Расходы -->
+        <div class="tab-pane fade" id="expenses" role="tabpanel" aria-labelledby="expenses-tab">
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Общие расходы по категориям (30 дней)</div>
+                        <div class="card-body">
+                            <canvas id="combinedCategorySpendingChart"></canvas>
+                            <div id="combinedCategorySpendingList" class="mt-3"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Топ-5 Счетов по расходам (30 дней)</div>
+                        <div class="card-body">
+                            <canvas id="topExpenseAccountsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Топ-5 Мерчантов по расходам (30 дней)</div>
+                        <div class="card-body">
+                            <canvas id="topMerchantSpendingChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Расходы по покупкам (детализация чеков)</div>
+                        <div class="card-body">
+                            <canvas id="purchaseCategorySpendingChart"></canvas>
+                            <div id="purchaseCategorySpendingList" class="mt-3"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: Доходы -->
+        <div class="tab-pane fade" id="income" role="tabpanel" aria-labelledby="income-tab">
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Топ-5 Категорий доходов (30 дней)</div>
+                        <div class="card-body">
+                            <canvas id="topIncomeCategoriesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+        <!-- TAB 4: Counterparties -->
+        <div class="tab-pane fade" id="counterparties" role="tabpanel" aria-labelledby="counterparties-tab">
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Топ-10 Контрагентов по балансу долга (Все валюты)</div>
+                        <div class="card-body">
+                            <canvas id="counterpartyBalanceChart"></canvas>
+                            <small class="text-muted">Положительные значения - вам должны, Отрицательные - вы должны.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 5: Другие счета -->
+        <div class="tab-pane fade" id="external" role="tabpanel" aria-labelledby="external-tab">
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">Счета, не включенные в общий баланс</div>
+                    <div class="card-body">
+                        {% if external_accounts %}
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Название</th>
+                                    <th>Тип</th>
+                                    <th>Баланс</th>
+                                    <th>Банк</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for acc in external_accounts %}
+                                <tr>
+                                    <td>{{ acc.name }}</td>
+                                    <td>{{ acc.account_type }}</td>
+                                    <td>{{ acc.balance | money_format }} {{ acc.currency }}</td>
+                                    <td>{{ acc.bank.name if acc.bank else '-' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <p>Нет счетов, помеченных как "не принадлежащие мне".</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<h3 class="mt-4">Последние Транзакции</h3>
+    <ul class="list-group">
+        {% for tx in recent_transactions %}
+            <li class="list-group-item">
+                
+            </li>
+
+        {% endfor %}
+    </ul>
+</div>
+
+<script>
+    const categoryLabels = JSON.parse('{{ category_labels | safe }}');
+    const categoryData = JSON.parse('{{ category_data | safe }}');
+    const categoryPercentages = JSON.parse('{{ category_percentages | safe }}');
+    const incomeExpenseLabels = JSON.parse('{{ income_expense_labels | safe }}');
+    const incomeExpenseData = JSON.parse('{{ income_expense_data | safe }}');
+    const subcategoryLabels = JSON.parse('{{ subcategory_labels | safe }}');
+    const subcategoryData = JSON.parse('{{ subcategory_data | safe }}');
+    const productsLabels = JSON.parse('{{ products_labels | safe }}');
+    const productsData = JSON.parse('{{ products_data | safe }}');
+    
+    // Новые переменные для чистого денежного потока
+    const flowOverTimeLabels = JSON.parse('{{ flow_over_time_labels | safe }}');
+    const flowOverTimeIncome = JSON.parse('{{ flow_over_time_income | safe }}');
+    const flowOverTimeExpense = JSON.parse('{{ flow_over_time_expense | safe }}');
+    const flowOverTimeNet = JSON.parse('{{ flow_over_time_net | safe }}');
+
+    // Новые переменные для расходов по счетам
+    const topExpenseAccountLabels = JSON.parse('{{ top_expense_account_labels | safe }}');
+    const topExpenseAccountData = JSON.parse('{{ top_expense_account_data | safe }}');
+
+    // Новые переменные для мерчантов и доходов
+    const topMerchantLabels = JSON.parse('{{ top_merchant_labels | safe }}');
+    const topMerchantData = JSON.parse('{{ top_merchant_data | safe }}');
+    const topIncomeLabels = JSON.parse('{{ top_income_labels | safe }}');
+    const topIncomeData = JSON.parse('{{ top_income_data | safe }}');
+
+    // Counterparty Data
+    const counterpartyLabels = JSON.parse('{{ counterparty_labels | safe }}');
+    const counterpartyData = JSON.parse('{{ counterparty_data | safe }}');
+
+    const purchaseCategoryLabels = JSON.parse('{{ purchase_category_labels | safe }}');
+    const purchaseCategoryData = JSON.parse('{{ purchase_category_data | safe }}');
+    const purchaseCategoryPercentages = JSON.parse('{{ purchase_category_percentages | safe }}');
+    
+    // Объединенные расходы по категориям
+    const combinedCategoryLabels = JSON.parse('{{ combined_category_labels | safe }}');
+    const combinedCategoryData = JSON.parse('{{ combined_category_data | safe }}');
+    const combinedCategoryPercentages = JSON.parse('{{ combined_category_percentages | safe }}');
+    
+    try {
+        // 1. Общие расходы по категориям (Bar)
+        new Chart(document.getElementById('combinedCategorySpendingChart'), { type: 'bar', data: { labels: combinedCategoryLabels, datasets: [{ label: 'Сумма', data: combinedCategoryData, backgroundColor: 'rgba(255, 99, 132, 0.5)' }] } });
+        
+        // 2. Доходы и расходы (Pie)
+        new Chart(document.getElementById('incomeExpenseChart'), { 
+            type: 'pie', 
+            data: { 
+                labels: incomeExpenseLabels, 
+                datasets: [{ 
+                    label: 'Сумма', 
+                    data: incomeExpenseData,
+                    backgroundColor: ['rgba(75, 192, 192, 0.8)', 'rgba(255, 99, 132, 0.8)']
+                }] 
+            } 
+        });
+        
+        // 3. Чистый денежный поток по месяцам (Line/Bar)
+        new Chart(document.getElementById('netFlowOverTimeChart'), {
+            type: 'bar',
+            data: {
+                labels: flowOverTimeLabels,
+                datasets: [
+                    {
+                        label: 'Чистый поток',
+                        data: flowOverTimeNet,
+                        type: 'line',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        fill: true,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Доход',
+                        data: flowOverTimeIncome,
+                        backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                        stack: 'Stack 0',
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Расход',
+                        data: flowOverTimeExpense.map(v => -v), // Отображаем расходы как отрицательные
+                        backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                        stack: 'Stack 0',
+                        yAxisID: 'y'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        stacked: true,
+                        title: {
+                            display: true,
+                            text: 'Сумма (RUB)'
+                        }
+                    }
+                }
+            }
+        });
+
+        // 4. Топ-5 счетов по расходам (Doughnut)
+        new Chart(document.getElementById('topExpenseAccountsChart'), { 
+            type: 'doughnut', 
+            data: { 
+                labels: topExpenseAccountLabels, 
+                datasets: [{ 
+                    label: 'Сумма расходов', 
+                    data: topExpenseAccountData,
+                    backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
+                }] 
+            } 
+        });
+
+        // 5. Топ-5 Мерчантов по расходам (Doughnut)
+        new Chart(document.getElementById('topMerchantSpendingChart'), { 
+            type: 'doughnut', 
+            data: { 
+                labels: topMerchantLabels, 
+                datasets: [{ 
+                    label: 'Сумма расходов', 
+                    data: topMerchantData,
+                    backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
+                }] 
+            } 
+        });
+
+        // 6. Топ-5 Категорий доходов (Bar)
+        new Chart(document.getElementById('topIncomeCategoriesChart'), { 
+            type: 'bar', 
+            data: { 
+                labels: topIncomeLabels, 
+                datasets: [{ 
+                    label: 'Сумма доходов', 
+                    data: topIncomeData,
+                    backgroundColor: 'rgba(75, 192, 192, 0.5)'
+                }] 
+            } 
+        });
+
+        // 7. Топ-10 Контрагентов (Bar horizontal)
+        new Chart(document.getElementById('counterpartyBalanceChart'), { 
+            type: 'bar', 
+            data: { 
+                labels: counterpartyLabels, 
+                datasets: [{ 
+                    label: 'Баланс (RUB эквив.)', 
+                    data: counterpartyData,
+                    backgroundColor: counterpartyData.map(v => v >= 0 ? 'rgba(75, 192, 192, 0.6)' : 'rgba(255, 99, 132, 0.6)')
+                }] 
+            },
+            options: {
+                indexAxis: 'y',
+            }
+        });
+
+    } catch (error) {
+        console.error("Error creating chart:", error);
+    }
+
+    try {
+        // 8. Расходы по покупкам (Bar)
+        new Chart(document.getElementById('purchaseCategorySpendingChart'), { type: 'bar', data: { labels: purchaseCategoryLabels, datasets: [{ label: 'Сумма', data: purchaseCategoryData, backgroundColor: 'rgba(153, 102, 255, 0.5)' }] } });
+    } catch (error) {
+        console.error("Error creating chart:", error);
+    }
+
+    // Динамическая генерация списка категорий
+    function renderCategoryList(labels, percentages, elementId) {
+        const listElement = document.getElementById(elementId);
+        if (!listElement) return;
+
+        if (labels && labels.length > 0) {
+            let html = '<ul class="list-unstyled">';
+            for (let i = 0; i < labels.length; i++) {
+                html += `<li><strong>${labels[i]}</strong>: ${percentages[i]}%</li>`;
+            }
+            html += '</ul>';
+            listElement.innerHTML = html;
+        } else {
+            listElement.innerHTML = '<p>Нет данных о расходах по категориям.</p>';
+        }
+    }
+
+    // Вызов функции для объединенных расходов
+    renderCategoryList(combinedCategoryLabels, combinedCategoryPercentages, 'combinedCategorySpendingList');
+    
+    // Вызов функции для расходов по покупкам
+    renderCategoryList(purchaseCategoryLabels, purchaseCategoryPercentages, 'purchaseCategorySpendingList');
+
+</script>
+
+
+
+
+{% endblock %}

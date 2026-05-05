@@ -1,0 +1,426 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
+
+import '../services/crypto_api_service.dart';
+import '../models/crypto_asset.dart';
+import '../models/crypto_platform.dart';
+
+class AssetsScreen extends StatefulWidget {
+  const AssetsScreen({super.key});
+
+  @override
+  State<AssetsScreen> createState() => _AssetsScreenState();
+}
+
+class _AssetsScreenState extends State<AssetsScreen> {
+  final NumberFormat currencyFormat = NumberFormat.currency(
+    symbol: '\$',
+    decimalDigits: 2,
+  );
+
+  List<CryptoAsset> _assets = [];
+  List<CryptoPlatform> _platforms = [];
+  bool _isLoading = true;
+  String _sortBy = 'value'; // 'value', 'name', 'change'
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    await Future.wait([
+      _loadAssets(),
+      _loadPlatforms(),
+    ]);
+  }
+
+  Future<void> _loadPlatforms() async {
+    final apiService = Provider.of<CryptoApiService>(context, listen: false);
+    final platforms = await apiService.getPlatforms();
+    if (mounted) {
+      setState(() {
+        _platforms = platforms;
+      });
+    }
+  }
+
+  Future<void> _loadAssets() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    final apiService = Provider.of<CryptoApiService>(context, listen: false);
+    final assets = await apiService.getAssets();
+
+    if (mounted) {
+      setState(() {
+        _assets = _sortAssets(assets);
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<CryptoAsset> _sortAssets(List<CryptoAsset> assets) {
+    switch (_sortBy) {
+      case 'value':
+        assets.sort((a, b) => b.valueUsd.compareTo(a.valueUsd));
+        break;
+      case 'name':
+        assets.sort((a, b) => a.name.compareTo(b.name));
+        break;
+      case 'change':
+        assets.sort((a, b) =>
+            ((b.change24h ?? 0).compareTo(a.change24h ?? 0)));
+        break;
+    }
+    return assets;
+  }
+
+  double _getTotalValue() {
+    return _assets.fold(0.0, (sum, asset) => sum + asset.valueUsd);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Крипто-активы'),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              setState(() {
+                _sortBy = value;
+                _assets = _sortAssets(_assets);
+              });
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'value',
+                child: Text('Сортировать по стоимости'),
+              ),
+              const PopupMenuItem(
+                value: 'name',
+                child: Text('Сортировать по названию'),
+              ),
+              const PopupMenuItem(
+                value: 'change',
+                child: Text('Сортировать по изменению'),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadAssets,
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Общая стоимость',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(color: Colors.grey[600]),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                currencyFormat.format(_getTotalValue()),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineMedium
+                                    ?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '${_assets.length} актив(ов)',
+                                style: TextStyle(color: Colors.grey[600]),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  _assets.isEmpty
+                      ? SliverFillRemaining(
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.account_balance_wallet,
+                                  size: 64,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Нет активов',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(color: Colors.grey[600]),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Добавьте биржу для синхронизации',
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : SliverPadding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) {
+                                return _buildAssetCard(_assets[index]);
+                              },
+                              childCount: _assets.length,
+                            ),
+                          ),
+                        ),
+                ],
+              ),
+            ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddAssetDialog(context),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  Widget _buildAssetCard(CryptoAsset asset) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Colors.orange.withOpacity(0.1),
+          child: Text(
+            asset.ticker.substring(0, 2).toUpperCase(),
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.orange,
+            ),
+          ),
+        ),
+        title: Text(
+          asset.name,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${asset.quantity.toStringAsFixed(6)} ${asset.ticker.toUpperCase()}',
+              style: const TextStyle(fontSize: 13),
+            ),
+            if (asset.platformName != null)
+              Text(
+                asset.platformName!,
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 11,
+                ),
+              ),
+          ],
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              currencyFormat.format(asset.valueUsd),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            if (asset.change24h != null)
+              Container(
+                margin: const EdgeInsets.only(top: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: asset.isPositive
+                      ? Colors.green.withOpacity(0.1)
+                      : Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  asset.changePercent,
+                  style: TextStyle(
+                    color: asset.isPositive ? Colors.green : Colors.red,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddAssetDialog(BuildContext context) {
+    final tickerController = TextEditingController();
+    final quantityController = TextEditingController();
+    CryptoPlatform? _selectedPlatform = _platforms.isNotEmpty ? _platforms.first : null;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Добавить актив'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<CryptoPlatform>(
+                  value: _selectedPlatform,
+                  decoration: const InputDecoration(
+                    labelText: 'Биржа',
+                    prefixIcon: Icon(Icons.business),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _platforms.map((platform) {
+                    return DropdownMenuItem(
+                      value: platform,
+                      child: Row(
+                        children: [
+                          const Icon(Icons.business, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              platform.name,
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                          ),
+                          Text(
+                            '${platform.assetsCount} активов',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (platform) {
+                    setDialogState(() {
+                      _selectedPlatform = platform;
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: tickerController,
+                  decoration: const InputDecoration(
+                    labelText: 'Тикер (например, BTC)',
+                    prefixIcon: Icon(Icons.currency_bitcoin),
+                    border: OutlineInputBorder(),
+                  ),
+                  textCapitalization: TextCapitalization.characters,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: quantityController,
+                  decoration: const InputDecoration(
+                    labelText: 'Количество',
+                    prefixIcon: Icon(Icons.pin),
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '⚠️ Актоматически добавляется на выбранный биржу',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.orange[700],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Отмена'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final ticker = tickerController.text.trim();
+                final quantity = double.tryParse(quantityController.text);
+
+                if (ticker.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Введите тикер')),
+                  );
+                  return;
+                }
+                if (quantity == null || quantity <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Введите корректное количество')),
+                  );
+                  return;
+                }
+                if (_selectedPlatform == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Добавьте биржу для создания актива')),
+                  );
+                  return;
+                }
+
+                Navigator.of(context).pop();
+
+                final apiService = Provider.of<CryptoApiService>(context, listen: false);
+                final result = await apiService.createAsset(
+                  platformId: _selectedPlatform!.id,
+                  ticker: ticker,
+                  quantity: quantity,
+                );
+
+                if (result != null && result['success'] == true) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Актив добавлен'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                  _loadData();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(result?['message'] ?? 'Ошибка при добавлении актива'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              child: const Text('Добавить'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

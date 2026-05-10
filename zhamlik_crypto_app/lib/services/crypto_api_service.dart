@@ -10,8 +10,8 @@ import '../models/futures_position.dart';
 import '../models/notification.dart';
 
 class CryptoApiService extends ChangeNotifier {
-  // Use main server (port 8443) for production HTTPS
-  static String get baseUrl => 'https://193.29.224.20:8443';
+  // Use HTTP for testing (in production use HTTPS with valid SSL)
+  static String get baseUrl => 'http://193.29.224.20:8443';
   
   String? _sessionCookie;
 

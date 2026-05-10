@@ -165,7 +165,19 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   }
 
   Future<void> _createTransactionFromReceipt() async {
-    if (_parsedReceipt == null || _selectedAccount == null) {
+    if (_parsedReceipt == null) {
+      return;
+    }
+
+    if (_selectedAccount == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Сначала создайте счет в приложении'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
       return;
     }
 

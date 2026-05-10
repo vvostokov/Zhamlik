@@ -10,11 +10,11 @@ import '../models/debt.dart';
 import '../models/notification.dart';
 
 class ApiService extends ChangeNotifier {
-  // Use main server (port 80) instead of separate mobile port
+  // Use main server (port 8443) for production HTTPS
   // Configure via environment or use default
   static String get baseUrl {
     // Can be overridden via SharedPreferences for production
-    return 'http://193.29.224.20';
+    return 'https://193.29.224.20:8443';
   }
   
   String? _token;

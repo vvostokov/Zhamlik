@@ -8,12 +8,12 @@ import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class UpdateService {
-  static const String _updateServerUrl = 'http://193.29.224.20/api/mobile';
+  static const String _updateServerUrl = 'https://193.29.224.20:8443/api/mobile';
   static const String _appName = 'banking';
 
   // Current app version
-  static const String _currentVersion = '1.2.8';
-  static const int _currentVersionCode = 8;
+  static const String _currentVersion = '1.3.0';
+  static const int _currentVersionCode = 9;
 
   // Public getter for version display
   static String get currentVersion => _currentVersion;

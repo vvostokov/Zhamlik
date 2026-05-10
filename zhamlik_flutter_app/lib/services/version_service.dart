@@ -34,11 +34,11 @@ class AppVersion {
 }
 
 class VersionService extends ChangeNotifier {
-  static const String _baseUrl = 'http://193.29.224.20';
+  static const String _baseUrl = 'https://193.29.224.20:8443';
   static const String _appType = 'banking';
 
-  static const String _currentVersion = '1.2.8';
-  static const int _currentVersionCode = 8;
+  static const String _currentVersion = '1.3.0';
+  static const int _currentVersionCode = 9;
 
   AppVersion? _latestVersion;
   bool _isLoading = false;

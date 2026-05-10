@@ -22,6 +22,14 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   List<Account> _accounts = [];
   Account? _selectedAccount;
 
+  double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -364,7 +372,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Итого: ${total.toStringAsFixed(2)} ₽',
+                    'Итого: ${_parseDouble(total).toStringAsFixed(2)} ₽',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                           color: Theme.of(context).colorScheme.primary,
                           fontWeight: FontWeight.bold,
@@ -389,9 +397,9 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                   return ListTile(
                     title: Text(item['name'] ?? 'Товар'),
                     subtitle: Text(
-                        '${item['quantity']} x ${item['price']?.toStringAsFixed(2) ?? '0.00'} ₽'),
+                        '${item['quantity']} x ${_parseDouble(item['price']).toStringAsFixed(2)} ₽'),
                     trailing: Text(
-                      '${(item['sum'] ?? 0).toStringAsFixed(2)} ₽',
+                      '${_parseDouble(item['sum']).toStringAsFixed(2)} ₽',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   );

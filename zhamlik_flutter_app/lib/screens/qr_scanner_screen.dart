@@ -185,37 +185,58 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       _isProcessing = true;
     });
 
-    final apiService = Provider.of<ApiService>(context, listen: false);
+    try {
+      final apiService = Provider.of<ApiService>(context, listen: false);
 
-    // Извлекаем данные из data
-    final receiptData = _parsedReceipt!.containsKey('data')
-        ? _parsedReceipt!['data'] as Map<String, dynamic>
-        : _parsedReceipt!;
+      if (_selectedAccount == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Выберите счет'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          setState(() => _isProcessing = false);
+        }
+        return;
+      }
 
-    final result = await apiService.receiptToTransaction(
-      receiptData: receiptData,
-      accountId: _selectedAccount!.id,
-    );
+      final receiptData = _parsedReceipt ?? {};
+      final accountId = _selectedAccount!.id;
 
-    if (mounted) {
-      setState(() {
-        _isProcessing = false;
-      });
+      debugPrint('[QR] Creating transaction - accountId: $accountId, receipt: $receiptData');
 
-      if (result != null) {
+      final result = await apiService.receiptToTransaction(
+        receiptData: receiptData,
+        accountId: accountId,
+      );
+      
+      debugPrint('[QR] Result: $result');
+
+      if (!mounted) return;
+
+      setState(() => _isProcessing = false);
+
+      if (result != null && result['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Операция успешно добавлена!'),
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.of(context).pop(true); // Return true to indicate success
+        Navigator.of(context).pop(true);
       } else {
+        final errorMsg = result?['error'] ?? 'Ошибка сервера';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Ошибка при создании операции'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      debugPrint('[QR] Exception: $e');
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
         );
       }
     }

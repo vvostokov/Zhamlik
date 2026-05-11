@@ -63,11 +63,15 @@ class ApiService extends ChangeNotifier {
   Future<http.Response> _post(String endpoint, {Map<String, dynamic>? body, bool withCookie = true}) async {
     final url = Uri.parse('$baseUrl$endpoint');
     final headers = withCookie ? _headersWithCookie : _headers;
-    return await http.post(
+    debugPrint('[API] POST $endpoint with headers: $headers');
+    debugPrint('[API] POST body: $body');
+    final response = await http.post(
       url,
       headers: headers,
       body: body != null ? jsonEncode(body) : null,
     ).timeout(const Duration(seconds: 30));
+    debugPrint('[API] POST response: ${response.statusCode}, body: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}');
+    return response;
   }
 
   // Store cookies from response
@@ -306,8 +310,19 @@ class ApiService extends ChangeNotifier {
     required int accountId,
     int? categoryId,
   }) async {
+    debugPrint('[API] receiptToTransaction START');
+    debugPrint('[API] sessionCookie: $_sessionCookie');
+    
+    if (_sessionCookie == null) {
+      debugPrint('[API] No session, loading...');
+      await loadSession();
+      debugPrint('[API] After loadSession, sessionCookie: $_sessionCookie');
+    }
+    
+    debugPrint('[API] receiptData keys: ${receiptData.keys.toList()}');
+    debugPrint('[API] accountId: $accountId');
+    
     try {
-      if (_sessionCookie == null) await loadSession();
       final response = await _post(
         '/api/mobile/receipt-to-transaction',
         body: {
@@ -316,17 +331,27 @@ class ApiService extends ChangeNotifier {
           if (categoryId != null) 'category_id': categoryId,
         },
       );
+      debugPrint('[API] receiptToTransaction response: ${response.statusCode}');
+      debugPrint('[API] response body: ${response.body}');
       _updateCookies(response);
 
       if (response.statusCode == 201) {
         return jsonDecode(response.body);
+      } else if (response.statusCode == 404 || response.statusCode == 400 || response.statusCode == 500) {
+        try {
+          final error = jsonDecode(response.body);
+          debugPrint('[API] Error response: ${response.statusCode}, error: ${error['error']}');
+          return {'success': false, 'error': error['error'] ?? 'Ошибка сервера'};
+        } catch (e) {
+          debugPrint('[API] Failed to parse error response: ${response.body}');
+          return {'success': false, 'error': 'Ошибка сервера: ${response.statusCode}'};
+        }
       } else {
-        final error = jsonDecode(response.body);
-        debugPrint('Error creating transaction from receipt: ${error['error']}');
+        debugPrint('[API] Unexpected status: ${response.statusCode}');
         return null;
       }
     } catch (e) {
-      debugPrint('Exception creating transaction from receipt: $e');
+      debugPrint('[API] Exception creating transaction from receipt: $e');
       return null;
     }
   }
